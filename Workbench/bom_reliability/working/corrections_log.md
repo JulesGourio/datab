@@ -157,3 +157,8 @@ Non traités par Genie (repris au lot 3) : F4d, F4f, F8, F9, F10, R5, R9 (compta
 - Contrôles OK : STPO, STAS, STKO, MAST, unité de base uniques ; PK non nulle.
 - Correction : `keep_latest_row()` (ligne la plus récemment ingérée par clé) sur MARC et MARM, et par précaution
   sur PLAF et AFKO dans `create_gold_order_component_requirement_history`. Cause à remonter à l'équipe d'ingestion.
+- Analyse du doublon MARC (`F5391312700300` / 1900, extractions de 2022-11-29 à 2023-05-28) : à **chaque**
+  extraction, 2 lignes **dans le même fichier parquet** (`..._SAP-MARC-F_..._0001.parquet`), `stack_row_id`
+  différents, valeurs métier identiques (`sobsl` 40, `kausf` 0, `ausss` 0), même `ingestion_timestamp`
+  (rechargement du 2024-01-31). Le doublon vient donc de l'extraction SAP, pas de l'ingestion ; le garder une
+  seule fois ne change aucune valeur. Cause SAP (mandant, `matnr` avec espace ?) à vérifier si besoin.
