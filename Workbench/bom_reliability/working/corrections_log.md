@@ -106,3 +106,43 @@ Source : `Audit BOM — Réponses F1…` (PDF Genie). Synthèse et impacts : spe
   description, `familly_std`, `classe_std`, `manuf_process`, `assembly_level`, `commodity`…
 
 Non traités par Genie (repris au lot 3) : F4d, F4f, F8, F9, F10, R5, R9 (comptage), R10, R11, M3, D2, D3, D4, E1–E4.
+
+## 2026-10-06 — Découverte Genie, lot 3 (G1–G10, F4d, F4f, F8, F9, R9, D2–D4, E1, E2, E4)
+
+- **G1 RESB** : trois profils d'extraction qui alternent (fin de mois) :
+  A ~30–45 M lignes, `xloek` ~95 %, `kzear` ~70 % (surtout clôturé) ; B ~60–83 M lignes (mélange) ;
+  C ~22–37 M lignes, 0 % `xloek`/`kzear`/`enmng > 0` (ouvert seulement : 2023-09, 2024-01, 2024-07 → 09, 2025-11).
+  Pas de changement de schéma (que des `COPY INTO` du job `F_0_SAP_Ingestion_V2` + VACUUM). Les lignes clôturées
+  sont identiques d'une extraction à l'autre.
+  → B choisit, avant chaque 1er du mois, l'extraction la plus récente contenant les besoins ouverts.
+- **G2 horizon** (dernière extraction, ouverts) : AR passé 484 640, 0–3 m 422 235, 3–6 m 25 625, 6–13 m 32 814,
+  13–24 m 20 240, > 24 m 8 698 ; SB passé 106 651, 0–3 m 3 475 131, 3–6 m 4 667 231, 6–13 m 9 021 709,
+  13–24 m 12 513 385, > 24 m 7 786 824. → filtre ≤ 13 mois.
+- **G3** : `esmng` = besoin sans rebut composant (`bdmng` = `esmng` × (1 + `ausch`) arrondi à l'entier sup.) ;
+  `nomng` = 0. → Prévision 2 = Σ `esmng`.
+- **G4** : AFKO `gasmg` (rebut), `gamng`, `igmng`, `iasmg` ; PLAF `avmng`, `gsmng`.
+- **G5** : `Quantity` de part_movement est déjà en unité de base (0 écart sur 8,3 M mouvements 261/262) ; pas de
+  table Gold de conversion.
+- **G6** : 531 sur OF = souvent l'article fictif `SPLIT` (sous-traitance), pas des sous-produits.
+- **G7/M3** : mouvements sur l'AF de l'OF : 101 331 472, 261 2 568 (rework), 102 2 508, 262 77, 122 4, 521 1.
+- **G8** : `work_order_type_description` existe : Details Parts (ZP01, ZP05, YP03), Assembly Parts (YP04, ZP03,
+  ZP04), Rush Orders (ZP09, ZP10, ZP11, ZP19, ZP21, YP09, YP10, YP11).
+- **G10** : MARC FULL ~827 k lignes stables ; DELTA 13–36 k lignes, plus aucune depuis 2025-07.
+- **F4d** : 11 245 articles `sobsl = '50'` sont composants d'une BOM de la même usine (65 %).
+- **F4f** : OF 000006799399 : lignes `dumps = 'X'` = fantômes (S9251393000400, S9251392900100, imbriqués) ; leurs
+  composants suivent avec `baugr` = fantôme. SAP éclate donc déjà les fantômes dans RESB.
+- **F8** : pas de T418T ; postes `Z` et `0` sont bien consommés (4,3 M mouvements sur OF en 12 mois) → gardés ;
+  `D` sans article → exclu.
+- **F9** : 53 268 postes sans MARM : IN→M 51 190, MM→M 568, MM2→M2 465, CCM→L 358, IN2→M2 319, CM2→M2 157,
+  G→KG 127, FT→M 62… → facteurs ISO constants dans A.
+- **R9** : OP par usine : 1000, 1010, 3000, 4000, 5000 ont l'essentiel de leurs OP à plus de 12 mois.
+- **D2** : `prod_gold.master_data.plant_master_data_latest_exposed` (Plant, Plant_Description…),
+  `prod_gold.finance.profit_center_exposed` (Profit_Center, Short_Description, Long_Description, validité…).
+- **D3** : `prod_gold.master_data.material_plant_price_history_exposed` (par période fiscale) ; prix courant dans
+  `material_plant.standard_price_eur_budget`.
+- **D4** : « PF usage » : `material_plant.quota_usage` ? ou `dev_selfservice.master_data.material_plant.PF_pourcentage_affectation` → à définir avec le métier.
+- **E1** : stlnr 00167113 (ARG_FINIT_DOOR_A2, usine 3000) : nœud 00000895 `menge` 1 → 2 entre 2025-04-27 et
+  2026-04-26 (autres : 00169610/00000113 93 → 89 ; 00226287/00000030 164 → 66).
+- **E2** : OF 6793594 (IS0014623M, usine 2400, OP 991075254, fin réelle 2026-02-04), fantôme IS0021449M.
+- **E4** : D5211200300000 : 6 alternatives avec des OF ; D5211200705214 : alternatives 01 et B1, 10 623 OF.
+- Non traités : G9 (lineage dates réelles), F10 (job BOM existant), R5, R10, R11, E3 — non bloquants pour le code v1.

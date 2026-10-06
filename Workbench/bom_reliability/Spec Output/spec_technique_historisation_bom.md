@@ -2,7 +2,7 @@
 
 | | |
 |---|---|
-| Statut | **DRAFT v3** (2026-10-06, après les lots de découverte Genie 1 et 2, §13) — à valider en kick-off (DAS + Test Definition pas encore écrits) |
+| Statut | **v4 — implémentée** (2026-10-06) : notebooks écrits, **snapshots mensuels** au lieu du SCD2 (voir §14, qui prime sur §5.5–5.8 et §6.4) — à valider en kick-off (DAS + Test Definition pas encore écrits) |
 | Remplace | « Spec technique v2 — Historisation BOM IS » générée par Databricks Genie (revue critique au §2) |
 | Couches | Gold (2 tables historisées) + Proj (calcul de fiabilité) |
 | Tests | Toutes les sorties en **`dev_lab.lab_jules`** pendant les tests (CLAUDE.md §0.1) |
@@ -14,6 +14,11 @@ Légende : **[À VÉRIFIER]** = hypothèse sur la donnée, à confirmer par les 
 ---
 
 ## 0. Résumé (à lire en premier)
+
+> **Décision d'implémentation (v4, §14)** : T0 étant le 1er de chaque mois, A et B stockent **un snapshot par mois**
+> (état SAP connu au début du mois, validité déjà résolue) au lieu d'un historique SCD2 bitemporel. Les sections
+> 5.5 à 5.8 et 6.4 (intervalles, rétro-datation par intervalle, lecture « connue à K, valide à D ») sont remplacées
+> par §14. Le reste de la spec (sources, colonnes SAP, règles métier, contrôles) reste valable.
 
 1. **Ce qui doit être historisé, et ce qui ne l'est pas.**
    - **BOM standard (as-design, Prévision 3)** → à historiser. Les tables `*_stack` de la landing zone permettent un
@@ -1062,3 +1067,61 @@ Détail des requêtes et résultats : `Workbench/bom_reliability/working/correct
 ### 13.4 Questions de suivi
 
 Voir `working/genie_questions_and_output_tests.md` §1.10 (lot 3 : G1–G10 + questions non traitées du lot 2).
+
+---
+
+## 14. Implémentation v1 (code) — ce qui est réellement fait
+
+| Notebook | Fichier | Sortie | Grain |
+|---|---|---|---|
+| A | `data_asset/production/bom_history/create_gold_bom_item_history.py` | `{env}_gold.production.bom_item_history` (+ `_exposed`) | 1er du mois × usine × AF × utilisation × alternative × n° BOM × nœud |
+| B | `data_asset/mrp/order_component_requirement_history/create_gold_order_component_requirement_history.py` | `{env}_gold.mrp.order_component_requirement_history` (+ `_exposed`) | 1er du mois × poste de réservation ouvert (OP `SB` / OF `AR`) |
+| C | `proj/ucTBD-bom_reliability/create_proj_bom_reliability.py` | `{env}_proj.supply_chain.ucTBD_bom_reliability_component`, `..._work_order` | période × usine × AF × composant / période × OF |
+
+### 14.1 Pourquoi des snapshots mensuels
+
+- T0 est le 1er de chaque mois (grille du rapport) : un historique jour par jour n'apporte rien au besoin.
+- Plus de bitemporalité : chaque snapshot est l'état SAP **connu au début du mois**, avec la validité déjà résolue
+  (dernier enregistrement STAS / STKO, suppressions retirées ; aucune validité future n'existe, F7). C lit
+  simplement `snapshot_date = T0`.
+- Reconstruction complète à chaque run (`save_table` overwrite) : les stacks sont append-only, on ne lit qu'une
+  extraction par mois et par table (élagage de partitions).
+
+### 14.2 Règles d'extraction
+
+- A : pour chaque snapshot, **dernière extraction strictement avant** le 1er du mois, par table. MAST/STAS avant
+  2024-06-11 : première extraction rétro-datée, liens créés après la date exclus (`andat`). MARC/MARM : extractions
+  `FULL` seulement.
+- B : RESB mélange des extractions de périmètres différents (G1 : profil « clôturé » ~5 % de lignes ouvertes,
+  profil « ouvert », profil mixte). Parmi les 5 dernières extractions (≤ 35 jours) avant le 1er du mois, on prend la
+  **plus récente ayant ≥ 80 % du volume ouvert maximal** ; un snapshot sous 50 % de la médiane est abandonné (log).
+  PLAF/AFKO/AFPO : dernière extraction ≤ celle de RESB.
+- Besoins ouverts : AR/SB, non supprimés, non soldés, `enmng = 0`, date de besoin ≤ snapshot + 13 mois (les OP à
+  plus de 13 mois = 20 M lignes inutiles, G2).
+
+### 14.3 Règles métier implémentées (défauts, à valider)
+
+| Sujet | Règle |
+|---|---|
+| Prévision 1 | Σ `bdmng` des lignes non fantômes (hors postes D/T) de l'OF à T0, sinon de son OP d'origine (`planned_order_link`) |
+| Prévision 2 | Σ `esmng` (= besoin avant rebut composant, vérifié G3 : `bdmng` = `esmng` × (1 + `ausch`) arrondi) |
+| Prévision 3 | BOM de l'alternative de l'ordre à T0 : `qty_base / BOM_base_quantity × quantité OF finale` (ou qty fixe) × (1 + rebut : `ausch` du poste sinon `kausf` de l'article) ; rebut d'ensemble non ajouté (déjà dans GAMNG) ; fantômes éclatés jusqu'à 5 niveaux, poste `9999` |
+| Normalisation | Prévisions 1/2 × (quantité OF finale / quantité de l'ordre à T0) |
+| Périmètre | OF non annulés, début réel ≥ T1, fin réelle ≤ T2 ; OF sans OP ni OF à T0 → `forecast_source = NONE`, listés mais hors fiabilité |
+| Conso 1 | tous les mouvements de l'OF hors 101/102/122 et hors l'AF lui-même, signe `DC_indicator` (H +, S −) |
+| Conso 2 | 261/262 |
+| Conso 3 | NULL (méthode à définir) |
+| Erreur | `|p − c| / max(p, c)`, 0 si les deux sont nuls, conso négative ramenée à 0 (flag `is_negative_consumption`) |
+| Statut | défaut P2/C2 : `OVERSTOCK` / `SHORTAGE` / `OK` |
+| Fiabilité | 1 − moyenne des erreurs composants (DAX `AVERAGE` par AF / CP / usine) |
+| Grille | T0 = snapshots communs à A et B, P1 = P2 = 3 mois, T2 ≤ aujourd'hui ; période par défaut = T0 du mois de J−6 mois |
+| Unités | Conso déjà en unité de base (G5) ; BOM convertie par MARM puis par facteurs ISO (IN→M, MM→M…, F9) |
+
+### 14.4 Lancer en lab
+
+Widgets communs : `pipeline_write_env = dev`, `reference_read_env = prod`, `lab_target_schema = dev_lab.lab_jules`.
+Premier passage court : `snapshot_from_date = 2026-01-01` et `debug_plant = 2400` sur A et B, puis
+`debug_plant = 2400` sur C. Ordre : A, B (indépendants), puis C. Ensuite, run complet sans `snapshot_from_date` ni
+`debug_plant`. Tests de sortie : `working/genie_questions_and_output_tests.md` §2 (adapter A2/A3/B2–B7 : plus
+d'intervalles, comparer chaque snapshot à l'extraction utilisée, visible dans `_BOM_extraction_timestamp` /
+`_RESB_extraction_timestamp`).
