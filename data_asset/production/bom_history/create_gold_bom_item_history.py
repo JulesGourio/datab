@@ -56,7 +56,7 @@
 # MAGIC - Base unit of the component comes from the current `material_exposed` (not historised).
 # MAGIC - MARC / MARM (and PLAF / AFKO in the requirement history) contain a few repeated rows in some extractions
 # MAGIC   (e.g. article F5391312700300 / plant 1900 in the extraction used for 2023-05 and 2023-06):
-# MAGIC   `keep_latest_row()` keeps the most recently ingested one. Root cause in the ingestion to be reported.
+# MAGIC   `keep_latest_row()` keeps one. The repeat is inside the SAP extract file (identical values), not the ingestion.
 
 # COMMAND ----------
 
