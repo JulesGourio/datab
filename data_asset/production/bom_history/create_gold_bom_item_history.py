@@ -54,6 +54,9 @@
 # MAGIC - Unit conversions of the same dimension (IN -> M, MM -> M, G -> KG...) have no MARM record: they come from the
 # MAGIC   constant `ISO_UNIT_FACTORS` below (SAP uses table T006, not available in the lakehouse).
 # MAGIC - Base unit of the component comes from the current `material_exposed` (not historised).
+# MAGIC - MARC / MARM (and PLAF / AFKO in the requirement history) contain a few repeated rows in some extractions
+# MAGIC   (e.g. article F5391312700300 / plant 1900 in the extraction used for 2023-05 and 2023-06):
+# MAGIC   `keep_latest_row()` keeps the most recently ingested one. Root cause in the ingestion to be reported.
 
 # COMMAND ----------
 
@@ -182,6 +185,7 @@ ISO_UNIT_FACTORS = [
 # MAGIC - `sap_number`: SAP text number -> double. SAP writes negatives with a trailing minus (`1.000-`) and pads with
 # MAGIC   spaces; a bare cast would return NULL or fail.
 # MAGIC - `sap_flag`: SAP indicator `'X'` -> `True`, anything else -> `False`.
+# MAGIC - `keep_latest_row`: one row per key when a source extraction repeats a row.
 # MAGIC - `month_starts` / `build_snapshot_mapping`: the snapshot calendar (first day of each month) and, for each
 # MAGIC   snapshot date, the latest extraction strictly before it.
 
@@ -227,6 +231,16 @@ def build_snapshot_mapping(extraction_timestamps, snapshot_dates, backdate_first
             rows.append((snapshot_date, min(extraction_timestamps), True))
     return spark.createDataFrame(
         rows, "snapshot_date date, extraction_timestamp timestamp, _is_backdated boolean"
+    )
+
+
+def keep_latest_row(df, key_columns):
+    """One row per key, the most recently ingested one: a source extraction can repeat a row."""
+    window = Window.partitionBy(*key_columns).orderBy(f.desc("_ingestion_timestamp"), f.desc("_stack_row_id"))
+    return (
+        df.withColumn("rn", f.row_number().over(window))
+        .filter("rn = 1")
+        .drop("rn", "_ingestion_timestamp", "_stack_row_id")
     )
 
 
@@ -521,6 +535,8 @@ MARC_COLUMNS = [
     f.trim("sobsl").alias("special_procurement_type"),
     sap_number("kausf").alias("material_component_scrap_percentage"),
     sap_number("ausss").alias("assembly_scrap_percentage"),
+    f.col("ingestion_timestamp").alias("_ingestion_timestamp"),
+    f.col("stack_row_id").alias("_stack_row_id"),
 ]
 
 df_marc_prep = (
@@ -529,6 +545,7 @@ df_marc_prep = (
 )
 
 df_marc_prep = table_utils.remove_leading_zeros(df=df_marc_prep, column_names=["material_number"])
+df_marc_prep = keep_latest_row(df_marc_prep, ["snapshot_date", "material_number", "plant"])
 
 df_gx_marc = SparkDFDataset(df_marc_prep, persist=False)
 
@@ -563,6 +580,8 @@ MARM_COLUMNS = [
     f.trim("meinh").alias("component_unit"),
     sap_number("umrez").alias("unit_numerator"),
     sap_number("umren").alias("unit_denominator"),
+    f.col("ingestion_timestamp").alias("_ingestion_timestamp"),
+    f.col("stack_row_id").alias("_stack_row_id"),
 ]
 
 df_marm_prep = (
@@ -574,6 +593,7 @@ df_marm_prep = (
 )
 
 df_marm_prep = table_utils.remove_leading_zeros(df=df_marm_prep, column_names=["component_material_number"])
+df_marm_prep = keep_latest_row(df_marm_prep, ["snapshot_date", "component_material_number", "component_unit"])
 
 df_gx_marm = SparkDFDataset(df_marm_prep, persist=False)
 

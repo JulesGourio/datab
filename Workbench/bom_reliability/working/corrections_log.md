@@ -146,3 +146,14 @@ Non traités par Genie (repris au lot 3) : F4d, F4f, F8, F9, F10, R5, R9 (compta
 - **E2** : OF 6793594 (IS0014623M, usine 2400, OP 991075254, fin réelle 2026-02-04), fantôme IS0021449M.
 - **E4** : D5211200300000 : 6 alternatives avec des OF ; D5211200705214 : alternatives 01 et B1, 10 623 OF.
 - Non traités : G9 (lineage dates réelles), F10 (job BOM existant), R5, R10, R11, E3 — non bloquants pour le code v1.
+
+## 2026-10-06 — Lab run 1 de `create_gold_bom_item_history` (RED, table non écrite)
+
+- 141 702 198 lignes finales ; PK `bom_item_history_ID` : 4 doublons
+  (`20230501/20230601-1000-F5391308100400-1-01-00000556-00000052`).
+- Cause : lignes répétées dans les extractions sources utilisées pour 2023-05 et 2023-06 :
+  MARC (`F5391312700300` / usine 1900, 2 lignes) et MARM (`F5391312700300`, unités `U` et `X`, 2 lignes chacune).
+  Le doublon MARM a dupliqué un poste de BOM à la jointure de conversion d'unité.
+- Contrôles OK : STPO, STAS, STKO, MAST, unité de base uniques ; PK non nulle.
+- Correction : `keep_latest_row()` (ligne la plus récemment ingérée par clé) sur MARC et MARM, et par précaution
+  sur PLAF et AFKO dans `create_gold_order_component_requirement_history`. Cause à remonter à l'équipe d'ingestion.

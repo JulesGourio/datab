@@ -47,6 +47,9 @@
 # MAGIC - `component_BOM_quantity` (`esmng`) is taken as the requirement without component scrap (checked on samples:
 # MAGIC   `bdmng` = `esmng` x (1 + `ausch`) rounded up). To be confirmed on planned orders (`SB`).
 # MAGIC - `order_scrap_quantity` of planned orders uses `plaf.avmng` (to be confirmed).
+# MAGIC - MARC / MARM (and PLAF / AFKO in the requirement history) contain a few repeated rows in some extractions
+# MAGIC   (e.g. article F5391312700300 / plant 1900 in the extraction used for 2023-05 and 2023-06):
+# MAGIC   `keep_latest_row()` keeps the most recently ingested one. Root cause in the ingestion to be reported.
 
 # COMMAND ----------
 
@@ -189,6 +192,16 @@ def month_starts(after_day, until_day):
         result.append(current)
         current = next_month(current)
     return result
+
+
+def keep_latest_row(df, key_columns):
+    """One row per key, the most recently ingested one: a source extraction can repeat a row."""
+    window = Window.partitionBy(*key_columns).orderBy(f.desc("_ingestion_timestamp"), f.desc("_stack_row_id"))
+    return (
+        df.withColumn("rn", f.row_number().over(window))
+        .filter("rn = 1")
+        .drop("rn", "_ingestion_timestamp", "_stack_row_id")
+    )
 
 
 def list_partition_timestamps(table_name):
@@ -429,6 +442,8 @@ PLAF_COLUMNS = [
     f.trim("stlan").alias("BOM_usage"),
     f.trim("stlal").alias("BOM_alternative"),
     f.trim("verid").alias("production_version"),
+    f.col("ingestion_timestamp").alias("_ingestion_timestamp"),
+    f.col("stack_row_id").alias("_stack_row_id"),
 ]
 
 df_plaf_prep = select_extractions(df_plaf_raw, "plaf_ts").select(*PLAF_COLUMNS)
@@ -436,6 +451,7 @@ df_plaf_prep = select_extractions(df_plaf_raw, "plaf_ts").select(*PLAF_COLUMNS)
 df_plaf_prep = table_utils.remove_leading_zeros(
     df=df_plaf_prep, column_names=["planned_order_number", "material_number"]
 )
+df_plaf_prep = keep_latest_row(df_plaf_prep, ["snapshot_date", "planned_order_number"])
 
 df_gx_plaf = SparkDFDataset(df_plaf_prep, persist=False)
 
@@ -457,9 +473,13 @@ AFKO_COLUMNS = [
     sap_date("gltrp").alias("order_planned_end_date"),
     f.trim("stlan").alias("BOM_usage"),
     f.trim("stlal").alias("BOM_alternative"),
+    f.col("ingestion_timestamp").alias("_ingestion_timestamp"),
+    f.col("stack_row_id").alias("_stack_row_id"),
 ]
 
-df_afko_prep = select_extractions(df_afko_raw, "afko_ts").select(*AFKO_COLUMNS)
+df_afko_prep = keep_latest_row(
+    select_extractions(df_afko_raw, "afko_ts").select(*AFKO_COLUMNS), ["snapshot_date", "work_order_number"]
+)
 
 AFPO_COLUMNS = [
     "snapshot_date",
