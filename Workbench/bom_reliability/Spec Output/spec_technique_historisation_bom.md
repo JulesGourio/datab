@@ -5,8 +5,8 @@
 | Statut | **v4 — implémentée** (2026-10-06) : notebooks écrits, **snapshots mensuels** au lieu du SCD2 (voir §14, qui prime sur §5.5–5.8 et §6.4) — à valider en kick-off (DAS + Test Definition pas encore écrits) |
 | Remplace | « Spec technique v2 — Historisation BOM IS » générée par Databricks Genie (revue critique au §2) |
 | Couches | Gold (2 tables historisées) + Proj (calcul de fiabilité) |
-| Tests | Toutes les sorties en **`dev_lab.lab_jules`** pendant les tests (CLAUDE.md §0.1) |
-| Conventions | CLAUDE.md (LEAP). Les noms `prod_…` ci-dessous sont les noms résolus avec `REFERENCE_READ_ENV = prod` ; dans le code ils s'écrivent toujours `f"{REFERENCE_READ_ENV}_…"` / `f"{PIPELINE_WRITE_ENV}_…"` |
+| Tests | Toutes les sorties en **`dev_lab.lab_jules`** pendant les tests (guidelines LEAP, tests en lab) |
+| Conventions | Guidelines LEAP. Les noms `prod_…` ci-dessous sont les noms résolus avec `REFERENCE_READ_ENV = prod` ; dans le code ils s'écrivent toujours `f"{REFERENCE_READ_ENV}_…"` / `f"{PIPELINE_WRITE_ENV}_…"` |
 
 Légende : **[À VÉRIFIER]** = hypothèse sur la donnée, à confirmer par les requêtes du §4 avant de coder.
 **[TBD]** = décision métier ouverte (liste au §11), à ne pas trancher silencieusement dans le code.
@@ -138,7 +138,7 @@ Gravité : 🔴 rend le résultat faux ou non conforme (BLOCKER LEAP) · 🟠 er
 | C1 | `as_planned` a plusieurs lignes par (OF, composant) (plusieurs postes / opérations) ; FULL OUTER JOIN avec `as_built` déjà agrégé → **la consommation est dupliquée** sur chaque ligne de réservation | 🔴 | Agréger chaque côté à (OF, composant) **avant** la jointure ; RED unicité sur la clé de jointure |
 | C2 | Snapshot as-design choisi à la date de création de l'OF au lieu de T0 | 🔴 | K = T0 (connaissance), D = date de validité (§8.5) |
 | C3 | `design_qty_total = quantity × (1+scrap) × wo_qty_planned` : oublie la quantité de base `BMENG` (erreur d'un facteur BMENG) et les quantités fixes | 🔴 | §8.5 |
-| C4 | `overconsumption_vs_scrap` = `delta_built_vs_design` (le notebook l'admet) | 🟡 NAMING | Deux colonnes avec la même information : interdit (CLAUDE.md §8) |
+| C4 | `overconsumption_vs_scrap` = `delta_built_vs_design` (le notebook l'admet) | 🟡 NAMING | Deux colonnes avec la même information : interdit (guidelines LEAP §8) |
 | C5 | **La formule de fiabilité du besoin n'est pas implémentée** (pas de % d'erreur borné, pas de surstock/manquant, pas de moyenne, pas de T0/T1/T2) | 🔴 | Notebook C |
 | C6 | Jointure design sur `(composant)` : un même composant peut figurer sur plusieurs postes de la BOM → fan-out | 🟠 | Agréger la BOM à (AF, composant) après explosion |
 
@@ -750,7 +750,7 @@ MAST/STAS), trim, `try_cast` avec signe SAP, `remove_leading_zeros` sur ordres e
   reservation_record_type, recorded_from_date)`, en première colonne ; `is_current`.
 
 La fonction de compression est identique dans A et B : en lab elle est copiée dans les deux notebooks (dette technique
-déclarée) ; avant Bitbucket elle part dans `leap_utils` (CLAUDE.md §12 : pas de copier-coller de plus de quelques lignes).
+déclarée) ; avant Bitbucket elle part dans `leap_utils` (guidelines LEAP §12 : pas de copier-coller de plus de quelques lignes).
 
 ### 6.5 Colonnes de sortie
 
@@ -969,7 +969,7 @@ Sans objet : les stacks RESB/PLAF/AFKO/AFPO existent (H2).
 | `W_2_Production_BOM_History_Data_Asset` | A | hebdomadaire (dimanche, après le stack STPO du samedi) | M multi (à mesurer) |
 | `W_3_<Domain>_BOM_Reliability_Project` | C (après A et B) | hebdo ou mensuel [TBD] | S/M |
 
-Tags, `run_as`, notifications, `base_parameters` : CLAUDE.md §11. `lab_target_schema` n'est jamais passé par un job.
+Tags, `run_as`, notifications, `base_parameters` : guidelines LEAP §11. `lab_target_schema` n'est jamais passé par un job.
 
 ---
 
@@ -992,7 +992,7 @@ Tags, `run_as`, notifications, `base_parameters` : CLAUDE.md §11. `lab_target_s
 | D13 | Lecture landing zone en Gold | dette technique déclarée | Équipe LEAP |
 | D14 | Fonction de compression en intervalles partagée A/B | à mettre dans `leap_utils` avant Bitbucket | Équipe LEAP |
 | D15 | Numéro de UC, domaine Proj, dossier `proj/` | — | Équipe |
-| D16 | Nommage PK/contraintes (Confluence vs existant) | `{table}_ID` / `gold_{table}_PK` | Équipe (CLAUDE.md §16.9) |
+| D16 | Nommage PK/contraintes (Confluence vs existant) | `{table}_ID` / `gold_{table}_PK` | Équipe (guidelines LEAP §16.9) |
 | D17 | Catégories de poste `Z`, `0`, `1`, `2`, `4`, `U`, `V` : prévision ou non ? | à décider après F8 | Métier |
 | D18 | Où est le « +20 % » de rebut ? | Surtout `MARC.AUSSS` (32 196 AF) + `RESB.AUSCH` (2,2 M lignes) ; KAUSF marginal (350) — à confirmer avec G3/G4 | Data + Métier |
 | D20 | Types d'ordre dans le périmètre (ZP01, ZP03, ZP04, ZP05, ZP09, YP04…) | à décider après G8 | Métier |

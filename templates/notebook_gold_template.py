@@ -77,7 +77,7 @@ REFERENCE_READ_ENV = dbutils.widgets.get("reference_read_env")
 dbutils.widgets.text("by_pass_quality_checks", "false")
 BYPASS_QUALITY_CHECKS = dbutils.widgets.get("by_pass_quality_checks").lower() == "true"
 
-# Lab test runs only (CLAUDE.md §0.1): e.g. "dev_lab.lab_jules" redirects every table this notebook writes.
+# Lab test runs only: "<catalog>.<schema>" of the lab redirects every table this notebook writes.
 # Always empty in jobs; never commit a non-empty default (hardcoded env = Convention Checker BLOCKER).
 dbutils.widgets.text("lab_target_schema", "")
 LAB_TARGET_SCHEMA = dbutils.widgets.get("lab_target_schema").strip()
@@ -288,7 +288,7 @@ df_transf = df_transf.withColumn(
 
 # MAGIC %md
 # MAGIC ## Tr. 3 - Amount correction and currency conversion
-# MAGIC Only if the asset carries monetary amounts (see CLAUDE.md section 5).
+# MAGIC Only if the asset carries monetary amounts (see the LEAP guidelines, Gold layer).
 # MAGIC #N/A
 
 # COMMAND ----------

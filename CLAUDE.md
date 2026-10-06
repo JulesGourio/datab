@@ -563,6 +563,10 @@ CLI: `databricks bundle validate|deploy -p job-runner-sa-dev -t dev`; bundle-ize
 **In this personal repo:** direct commits/pushes to `main`, no PR. Never force-push (keeps history usable when the
 work is later moved to Bitbucket). Use `log.info()/log.warning()` — **never `print()`**.
 
+**No mention of Claude / AI tooling** anywhere in the delivered work: code comments, notebook markdown, specs,
+commit messages (no `Co-Authored-By` / session trailers), PR texts. Code comments never cite this file either
+(write "LEAP guidelines"), and never contain a lab path (`dev_lab…`) literally.
+
 **On the company Bitbucket repo (final step — apply when moving the work there):**
 - Branches from `main`: `feature/<maingoal_object>` or `bugfix/<maingoal_object>` (ideally matching the Jira EPIC).
 - Merge **only via Pull Request**; **never force-push**; no direct push to `main`.
