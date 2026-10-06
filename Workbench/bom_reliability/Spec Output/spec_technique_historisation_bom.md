@@ -2,7 +2,7 @@
 
 | | |
 |---|---|
-| Statut | **DRAFT v1** — à valider en kick-off (DAS + Test Definition pas encore écrits) |
+| Statut | **DRAFT v2** (2026-10-06, après la découverte Genie, §13) — à valider en kick-off (DAS + Test Definition pas encore écrits) |
 | Remplace | « Spec technique v2 — Historisation BOM IS » générée par Databricks Genie (revue critique au §2) |
 | Couches | Gold (2 tables historisées) + Proj (calcul de fiabilité) |
 | Tests | Toutes les sorties en **`dev_lab.lab_jules`** pendant les tests (CLAUDE.md §0.1) |
@@ -18,10 +18,10 @@ Légende : **[À VÉRIFIER]** = hypothèse sur la donnée, à confirmer par les 
 1. **Ce qui doit être historisé, et ce qui ne l'est pas.**
    - **BOM standard (as-design, Prévision 3)** → à historiser. Les tables `*_stack` de la landing zone permettent un
      **backfill depuis avril 2023** (STKO/STPO) / juin 2024 (MAST/STAS).
-   - **Besoins des OP/OF (as-planned, Prévisions 1 et 2)** → à historiser. C'est **le point critique** : la proposition
-     Genie lit la table de réservations *courante*, elle ne donne donc **pas** la prévision connue à T0. Si aucun
-     historique RESB/PLAF n'existe (stack ou bronze append), **la capture doit démarrer tout de suite** : chaque jour
-     non capturé est perdu, et avec T0 = J−6 mois la première mesure complète arrive 6 mois après le début de capture.
+   - **Besoins des OP/OF (as-planned, Prévisions 1 et 2)** → à historiser. La proposition Genie lit la table de
+     réservations *courante*, elle ne donne donc **pas** la prévision connue à T0. **Découverte du 2026-10-06** :
+     `resb_stack` (depuis 2023-09-17), `plaf_stack`, `afko_stack`, `afpo_stack` (depuis fin 2022) existent → B se
+     **reconstruit depuis les stacks**, comme A. Première date T0 possible : 2023-09-17.
    - **Consommations (as-built, Conso 1/2/3)** → **pas d'historisation**. Les mouvements de stock (MSEG) sont des
      documents immuables (une annulation est un nouveau document) : la table Gold courante contient déjà tout l'historique.
 2. **3 notebooks au lieu de 4 (+ 1 table CDC)** :
@@ -29,7 +29,7 @@ Légende : **[À VÉRIFIER]** = hypothèse sur la donnée, à confirmer par les 
    | # | Notebook | Sortie (prod) | Rôle |
    |---|---|---|---|
    | A | `data_asset/production/bom_history/create_gold_bom_item_history.py` | `prod_gold.production.bom_item_history` (+ `_exposed`) | BOM standard bitemporelle (SCD2), reconstruite depuis les stacks |
-   | B | `data_asset/mrp/order_component_requirement_history/create_gold_order_component_requirement_history.py` | `prod_gold.mrp.order_component_requirement_history` (+ `_exposed`) | Besoins composants des OP **et** OF, capturés chaque jour (SCD2) |
+   | B | `data_asset/mrp/order_component_requirement_history/create_gold_order_component_requirement_history.py` | `prod_gold.mrp.order_component_requirement_history` (+ `_exposed`) | Besoins composants ouverts des OP **et** OF, reconstruits chaque semaine depuis les stacks (SCD2) |
    | C | `proj/<uc_folder>/create_proj_bom_reliability.py` | `prod_proj.<domain>.uc<NNN>_bom_reliability_component` + `uc<NNN>_bom_reliability_work_order` | Périmètre OF, Prévisions 1/2/3 à T0, Conso 1/2/3, explosion des fantômes, % d'erreur, fiabilité |
 
    Pas de notebook « As-Built » séparé : l'agrégation des mouvements est une étape du notebook C. Pas de table CDC : le
@@ -37,8 +37,7 @@ Légende : **[À VÉRIFIER]** = hypothèse sur la donnée, à confirmer par les 
 3. **Modèle bitemporel** pour la BOM : *temps de connaissance* (`recorded_from/to_date`, ce que SAP contenait à une
    date, issu des snapshots) × *temps de validité* (`DATUV` / `LKENZ` SAP, gestion par numéro de modification).
    Genie ignore complètement la validité : les versions successives d'un même poste sont additionnées.
-4. **Ordre de travail** : requêtes de découverte (§4) → démarrage de la capture B (même en lab, planifiée) → backfill A
-   → notebook C.
+4. **Ordre de travail** : questions de suivi Genie (§13.3) → A (BOM) → B (besoins) → notebook C.
 
 ---
 
@@ -83,7 +82,7 @@ Gravité : 🔴 rend le résultat faux ou non conforme (BLOCKER LEAP) · 🟠 er
 | # | Constat | Gravité | Correction |
 |---|---|---|---|
 | G1 | Environnements en dur (`prod_landingzone…`, `prod_gold…`, `dev_proj…`) | 🔴 BLOCKER | `f"{REFERENCE_READ_ENV}_…"` en lecture, `f"{PIPELINE_WRITE_ENV}_…"` en écriture, `lab_target_schema` en test |
-| G2 | `.write…saveAsTable()` direct | 🔴 BLOCKER | `table_utils.save_table()` (A, C) ; `MERGE` Delta pour l'append SCD2 de B (§6.6) |
+| G2 | `.write…saveAsTable()` direct | 🔴 BLOCKER | `table_utils.save_table()` (A, B, C) |
 | G3 | Aucun contrôle GX RED, aucune PK, pas de contrainte | 🔴 BLOCKER | Section `# Quality Checks` groupée, PK `{table}_ID`, contrainte `gold_{table}_PK` |
 | G4 | Historique de BOM écrit en **Proj** (`dev_proj.supply_chain.*`) | 🟠 | Donnée réutilisable, indépendante du cas d'usage → **Gold** (`production`, `mrp`). Proj ne contient que le calcul de fiabilité |
 | G5 | `logging.basicConfig`, `display()` de vérification, `.count()`/`.collect()`/`.cache()` pour les logs | 🟡 STANDARD | `logger.setup_applevel_logger` ; pas d'action Spark pour logger ; analyses exploratoires dans le corrections_log, pas dans le notebook de job |
@@ -104,15 +103,15 @@ Gravité : 🔴 rend le résultat faux ou non conforme (BLOCKER LEAP) · 🟠 er
 | D6 | CDC : au 1er snapshot tous les postes sont `ADDED` ; une disparition du poste (sans `lkenz`) n'est pas détectée ; changement de composant / unité non détecté | 🟠 | Disparu = intervalle fermé ; tout attribut métier fait partie du hash de version |
 | D7 | `quantity_per_base_unit` : mélange quantité fixe (par ordre) et proportionnelle (par `BMENG`), division par 1 si `BMENG = 0` | 🟠 | Stocker `component_quantity`, `BOM_base_quantity`, `is_fixed_quantity` bruts ; le calcul de besoin se fait dans C (§8.5), `BMENG = 0` est un contrôle AMBER |
 | D8 | Unité : `STPO.MEINS` (unité de saisie BOM) ≠ unité de base du composant, qui est l'unité de RESB et de MSEG | 🟠 | Conversion via MARM dans A (`component_quantity_in_base_unit`) |
-| D9 | Fantômes (`DUMPS`) ignorés alors que le besoin les cite explicitement | 🔴 | `is_phantom_item` dans A et B, explosion récursive dans C (§8.6) |
+| D9 | Fantômes (`SOBSL = 50`, `DUMPS` dans RESB) ignorés alors que le besoin les cite explicitement | 🔴 | `is_phantom_item` dans A et B, explosion récursive dans C (§8.6) |
 | D10 | Choix de l'alternative non traité (plusieurs alternatives par AF) | 🟠 | Dans C, l'alternative est **celle de l'OF** (`AFKO.STLAL` / version de production) — pas besoin d'historiser MKAL |
 
 ### 2.3 Notebook 2 (As-Planned)
 
 | # | Constat | Gravité | Correction |
 |---|---|---|---|
-| P1 | **Lit les réservations courantes** : la quantité est celle d'aujourd'hui, pas celle connue à T0. Le besoin principal (Prévision 1/2 à T0) n'est pas couvert | 🔴 | Notebook B : capture quotidienne SCD2 (+ backfill si un historique RESB existe) |
-| P2 | Seulement les OF (`work_order_origin`) : les **OP** (ordres planifiés), qui représentent l'essentiel de la prévision à 3–6 mois, sont absents | 🔴 | B capture aussi les besoins dépendants des OP (`BDART = 'SB'`, `PLAF`) et le lien OP → OF (`AFPO.PLNUM`) |
+| P1 | **Lit les réservations courantes** : la quantité est celle d'aujourd'hui, pas celle connue à T0. Le besoin principal (Prévision 1/2 à T0) n'est pas couvert | 🔴 | Notebook B : historique SCD2 reconstruit depuis `resb_stack` / `plaf_stack` / `afko_stack` / `afpo_stack` |
+| P2 | Seulement les OF (`work_order_origin`) : les **OP** (ordres planifiés), qui représentent l'essentiel de la prévision à 3–6 mois, sont absents | 🔴 | B reprend aussi les besoins dépendants des OP (`BDART = 'SB'`, `PLAF`) et le lien OP → OF (`AFPO.PLNUM`) |
 | P3 | `filter(is_cancelled_item == False)` : en Spark `NULL == False` → NULL → **ligne supprimée** ; toutes les lignes à NULL disparaissent | 🟠 | `f.coalesce(f.col("is_cancelled_item"), f.lit(False)) == False`, ou garder la ligne et le flag |
 | P4 | `qty_bom_pure = qty / (1 + scrap%)` : ignore rebut d'ensemble, rebut opération, indicateur net, quantité fixe | 🟠 | §8.4 |
 | P5 | `qty_per_wo_unit` sur la quantité planifiée actuelle | 🟡 | Normalisation volume définie au §8.3 (TBD) |
@@ -150,13 +149,13 @@ Gravité : 🔴 rend le résultat faux ou non conforme (BLOCKER LEAP) · 🟠 er
                        │ prod_landingzone.sap_latecoere_ecc6.{mast,stko,stas,stpo}_stack  │
                        └──────────────────────────────┬───────────────────────────────────┘
                                                       │ (backfill complet, reconstruit à chaque run)
-  prod_bronze.sap_latecoere_ecc6.marm_latest ────────►│
+  prod_landingzone.sap_latecoere_ecc6.{marc,marm}_stack ►│  (MARC : fantôme SOBSL, rebuts KAUSF/AUSSS)
                                                       ▼
                        A  create_gold_bom_item_history ──► prod_gold.production.bom_item_history (+_exposed)
 
-  prod_bronze.sap_latecoere_ecc6.{resb,plaf,afko,afpo}_latest ─┐  (capture quotidienne, MERGE SCD2,
-  [stack/historique RESB-PLAF si existant → backfill one-shot] ─┤   jamais d'overwrite)
-                                                                ▼
+  prod_landingzone.sap_latecoere_ecc6.{resb,plaf,afko,afpo}_stack ─┐  (1 extraction par semaine,
+                                                                    │   reconstruit à chaque run)
+                                                                    ▼
                        B  create_gold_order_component_requirement_history ──► prod_gold.mrp.order_component_requirement_history (+_exposed)
 
   prod_gold.supply_chain_logistic.part_movement_exposed ─┐
@@ -173,7 +172,7 @@ Gravité : 🔴 rend le résultat faux ou non conforme (BLOCKER LEAP) · 🟠 er
 | Table | Prod | Lab (tests) | Grain | Mode d'écriture |
 |---|---|---|---|---|
 | BOM standard historisée | `prod_gold.production.bom_item_history` | `dev_lab.lab_jules.bom_item_history` | 1 ligne = 1 version d'un poste de BOM (usine, AF, utilisation, alternative, n° BOM, nœud, compteur poste, compteur allocation, compteur en-tête) sur un intervalle de connaissance | overwrite complet (reconstruit depuis les stacks à chaque run) |
-| Besoins OP/OF historisés | `prod_gold.mrp.order_component_requirement_history` | `dev_lab.lab_jules.order_component_requirement_history` | 1 ligne = 1 version d'un poste de réservation (`RSNUM`, `RSPOS`, `RSART`) sur un intervalle de connaissance | **MERGE incrémental, jamais d'overwrite** (la donnée capturée n'est pas reconstructible) |
+| Besoins OP/OF historisés | `prod_gold.mrp.order_component_requirement_history` | `dev_lab.lab_jules.order_component_requirement_history` | 1 ligne = 1 version d'un poste de réservation (`RSNUM`, `RSPOS`, `RSART`) sur un intervalle de connaissance | overwrite complet (reconstruit depuis les stacks à chaque run) |
 | Fiabilité par composant | `prod_proj.<domain>.uc<NNN>_bom_reliability_component` | `dev_lab.lab_jules.uc<NNN>_bom_reliability_component` | (période T0/P1/P2, division, AF, composant) | overwrite |
 | Périmètre OF | `prod_proj.<domain>.uc<NNN>_bom_reliability_work_order` | `dev_lab.lab_jules.uc<NNN>_bom_reliability_work_order` | (période T0/P1/P2, OF) | overwrite |
 
@@ -252,9 +251,9 @@ WHERE Work_order IS NOT NULL AND Work_order <> '' GROUP BY 1 ORDER BY 2 DESC;
 
 | Résultat | Conséquence pour B |
 |---|---|
-| Un stack / bronze append RESB + PLAF existe | Backfill one-shot depuis cet historique, puis capture quotidienne |
-| Rien n'existe | Capture quotidienne **à démarrer immédiatement** (job lab planifié en attendant la prod, §9.3) ; avant le début de capture, mode dégradé (§6.7) |
-| `reservation_mrp_sap` expose OP + OF avec `BDART`, `PLNUM`, `AUFNR`, `AUSCH`, `AVOAU`, `NETAU`, `DUMPS`, `SCHGT`, `XLOEK`, `STLNR/STLKN/STPOZ`, `BAUGR` | Capturer depuis cette table Gold (réutilisation) plutôt que depuis le bronze |
+| ✅ Un stack RESB + PLAF existe (résultat H2 du 2026-10-06) | B reconstruit depuis les stacks (§6) |
+
+Les résultats de Q1–Q12 sont au §13 et dans `working/corrections_log.md`.
 
 ---
 
@@ -281,7 +280,8 @@ jointures par intersection d'intervalles ; quantités SAP au format texte avec s
 - {REFERENCE_READ_ENV}_landingzone.sap_latecoere_ecc6.stko_stack
 - {REFERENCE_READ_ENV}_landingzone.sap_latecoere_ecc6.stas_stack
 - {REFERENCE_READ_ENV}_landingzone.sap_latecoere_ecc6.stpo_stack
-- {REFERENCE_READ_ENV}_bronze.sap_latecoere_ecc6.marm_latest
+- {REFERENCE_READ_ENV}_landingzone.sap_latecoere_ecc6.marc_stack
+- {REFERENCE_READ_ENV}_landingzone.sap_latecoere_ecc6.marm_stack
 - {REFERENCE_READ_ENV}_gold.master_data.material_exposed   (unité de base du composant) [À VÉRIFIER nom/colonne]
 **Output Tables (Pipeline)**
 - {PIPELINE_WRITE_ENV}_gold.production.bom_item_history
@@ -289,7 +289,7 @@ jointures par intersection d'intervalles ; quantités SAP au format texte avec s
 ```
 
 `# Technical debt` à déclarer : lecture directe de la landing zone (à remplacer par des tables bronze `*_history` si
-la plateforme les expose) ; MARM courant utilisé pour toutes les dates ; rétro-datation MAST/STAS avant juin 2024.
+la plateforme les expose) ; rétro-datation MAST/STAS avant juin 2024.
 
 ### 5.2 Configuration
 
@@ -297,7 +297,7 @@ Imports et widgets du template (y compris `lab_target_schema`). Constantes méti
 
 ```python
 BOM_CATEGORY = "M"                 # STLTY : BOM matériel
-BOM_USAGES = ["1"]                 # STLAN [TBD selon Q4 : production seulement ?]
+BOM_USAGES = ["1"]                 # STLAN : production (99,97 % des liens MAST, B3) — comme prod_silver.production.bom
 DATE_SENTINEL = "9999-12-31"       # recorded_to_date d'une version encore présente dans le dernier snapshot
 ```
 
@@ -309,7 +309,8 @@ df_mast_raw = spark.read.table(f"{LZ}.mast_stack")
 df_stko_raw = spark.read.table(f"{LZ}.stko_stack")
 df_stas_raw = spark.read.table(f"{LZ}.stas_stack")
 df_stpo_raw = spark.read.table(f"{LZ}.stpo_stack")
-df_marm_raw = spark.read.table(f"{REFERENCE_READ_ENV}_bronze.sap_latecoere_ecc6.marm_latest")
+df_marc_raw = spark.read.table(f"{LZ}.marc_stack")
+df_marm_raw = spark.read.table(f"{LZ}.marm_stack")
 df_material_raw = spark.read.table(f"{REFERENCE_READ_ENV}_gold.master_data.material_exposed")
 ```
 
@@ -321,9 +322,13 @@ Principe commun à STKO, STAS, STPO, MAST (factoriser dans une fonction locale d
 l'extraction dans `leap_utils` si validée) :
 
 1. **Sélection + renommage** via constantes `STPO_COLUMNS` / `STPO_COLUMNS_RENAME` (pattern du notebook de référence).
-2. **`snapshot_date = to_date(extraction_timestamp)`** ; si Q3 montre plusieurs extractions par jour, garder la plus
-   récente : `max(extraction_timestamp)` par jour puis semi-join (jamais mélanger deux chargements partiels).
-3. **Trim** de toutes les chaînes ; filtres `stlty = 'M'` (STKO, STAS, STPO) et `stlan IN BOM_USAGES` (MAST).
+2. **`snapshot_date = to_date(extraction_timestamp)`** ; garder la plus récente extraction du jour
+   (`max(extraction_timestamp)` par jour puis semi-join) — **confirmé nécessaire** : MAST et STAS ont des jours à deux
+   extractions complètes (S1). **Alignement hebdo** : MAST, STAS et MARC (quotidiens) ne sont lus qu'aux dates
+   d'extraction STPO, ou à la plus récente antérieure (table de correspondance as-of) : élagage de partitions
+   (STAS = 15,8 Md de lignes au total) et un seul rythme de connaissance pour toute la table.
+3. **Trim** de toutes les chaînes ; filtres `stlty = 'M'` (STKO, STAS, STPO — `stlnr` est partagé avec les BOM de
+   coûts `K` dans 961 cas, B2) et `stlan IN BOM_USAGES` (MAST, `'1'` = 99,97 %) ; exclure MAST `werks` NULL (80 lignes).
 4. **Typage** : quantités par `try_cast` après déplacement du signe moins SAP (`table_utils.transform_float_column` —
    signature **[À VÉRIFIER]** ; à défaut, comportement attendu ci-dessous) ; dates `f.try_to_date(col, "yyyyMMdd")` ;
    indicateurs `'X'` → booléens `True/False` (`f.coalesce(f.col(c) == "X", f.lit(False))`).
@@ -390,7 +395,7 @@ Clé : (`BOM_number`, `BOM_alternative`, `BOM_node`, `BOM_allocation_counter`).
 | `ausch` | `component_scrap_percentage` | double | ⭐ rebut composant (20 = +20 %) |
 | `avoau` | `operation_scrap_percentage` | double | rebut opération |
 | `netau` | `is_net_scrap` | boolean | rebut d'ensemble ignoré si `X` |
-| `dumps` | `is_phantom_item` | boolean | ⭐ fantôme |
+| `sobsl` | `item_special_procurement_type` | string | ⭐ `50` = fantôme au niveau du poste [À VÉRIFIER F4] — `dumps` n'existe pas dans STPO (B11) |
 | `schgt` | `is_bulk_material` | boolean | vrac (pas de sortie sur OF) |
 | `alpos`, `alpgr`, `ewahr` | `is_alternative_item`, `alternative_item_group`, `usage_probability` | bool/string/double | postes alternatifs |
 | `lgort` | `issue_storage_location` | string | |
@@ -401,6 +406,15 @@ Clé : (`BOM_number`, `BOM_alternative`, `BOM_node`, `BOM_allocation_counter`).
 
 Clé : (`BOM_number`, `BOM_node`, `BOM_item_counter`). Pas de filtre sur `postp` ici (la Gold garde tout ; le filtre
 « composants consommables » est fait dans C).
+
+Versionnement (B6/B7) : 50 % des postes portent un numéro de modification, mais il n'existe jamais deux `stpoz` pour un
+même nœud et aucun `lkenz = 'X'` dans STPO. Une modification avec numéro de modification crée donc un **nouveau
+nœud** (`vgknt` = nœud précédent) et la fin de validité de l'ancien est portée par **STAS** (enregistrement
+`lkenz = 'X'` daté) [À VÉRIFIER F6]. `stpoz` reste dans la clé (gratuit) mais ne versionne rien.
+
+Catégories `postp` présentes (B11) : `L` 4,16 M, `R` 205 k, `Z` 126 k, `D` 106 k, `0` 98 k, `T` 22 k, `N` 507, et
+`1`, `U`, `4`, `V`, `2` marginaux. `Z`, `0` et les chiffres sont des catégories propres à Latécoère : signification à
+obtenir (F8) avant de décider lesquelles entrent dans la prévision (C). La Gold les garde toutes.
 
 #### Prep4 — MAST (lien matériel ↔ BOM)
 
@@ -415,7 +429,29 @@ Clé : (`BOM_number`, `BOM_node`, `BOM_item_counter`). Pas de filtre sur `postp`
 
 Clé : (`material_number`, `plant`, `BOM_usage`, `BOM_number`, `BOM_alternative`).
 
-#### Prep5 — conversion d'unité (MARM courant)
+#### Prep6 — MARC historisé (`marc_stack`) : fantôme et rebuts au niveau article × usine
+
+Les BOM ne portent presque pas de rebut (`ausch > 0` sur 1 859 postes sur 4,7 M, `avoau` sur 5 : B10). Le « +20 % »
+du métier est donc ailleurs : très probablement `MARC.KAUSF` (rebut composant de l'article, utilisé par SAP quand le
+poste n'a pas d'`ausch`) et `MARC.AUSSS` (rebut d'ensemble de l'AF) [À VÉRIFIER F5]. Et le fantôme se déclare
+surtout par `MARC.SOBSL = '50'` du composant. `marc_stack` existe depuis 2022-11 : on l'historise comme le reste.
+
+| SAP | Colonne cible | Rôle |
+|---|---|---|
+| `matnr`, `werks` | `material_number`, `plant` | clé (zéros retirés) |
+| `sobsl` | `special_procurement_type` | `50` = fantôme |
+| `kausf` | `material_component_scrap_percentage` | rebut composant (côté composant) |
+| `ausss` | `assembly_scrap_percentage` | rebut d'ensemble (côté AF) |
+
+Compression en intervalles (§5.6), puis **deux** jointures par intersection d'intervalles en Transformations : côté
+composant (`component_material_number`, `plant`) → `component_special_procurement_type`,
+`material_component_scrap_percentage` ; côté AF (`material_number`, `plant`) → `assembly_scrap_percentage`. LEFT
+(un composant sans MARC dans l'usine reste dans la BOM). Colonne dérivée :
+`is_phantom_item = item_special_procurement_type == '50' OR component_special_procurement_type == '50'`
+[règle à confirmer avec F4]. Table de MARM : idem, `marm_stack` pour cohérence temporelle (ou `marm_latest` si la
+conversion ne change jamais — dette technique).
+
+#### Prep5 — conversion d'unité (MARM, `marm_stack` aligné sur les dates STPO)
 
 `material_number`, `alternative_unit` (`MEINH`), `numerator` (`UMREZ`), `denominator` (`UMREN`) ; unité de base du
 composant depuis `material_exposed` (`MARA.MEINS`). Dédoublonnage sur (`material_number`, `alternative_unit`) + RED
@@ -521,7 +557,8 @@ intervalles d'une même clé ne se chevauchant pas de chaque côté, le résulta
 | `## Tr. 1` | STPO ⋈ STAS | `BOM_number`, `BOM_node` | INNER | Un poste sans allocation n'appartient à aucune alternative (inutilisable). Comptage des postes perdus = AMBER |
 | `## Tr. 2` | ⋈ STKO | `BOM_number`, `BOM_alternative` | INNER | Alternative sans en-tête = incohérence SAP |
 | `## Tr. 3` | ⋈ MAST | `BOM_number`, `BOM_alternative` | INNER | Donne usine + AF + utilisation ; une BOM sans lien MAST n'est pas une BOM matériel exploitable. Une BOM partagée par plusieurs AF/usines **duplique volontairement** les postes (une ligne par AF) — c'est le grain voulu, pas un fan-out |
-| `## Tr. 4` | conversion d'unité (Prep5) | `component_material_number`, `component_unit` | LEFT | `component_quantity_in_base_unit`, `component_base_unit` ; NULL si facteur absent → AMBER |
+| `## Tr. 4` | conversion d'unité (Prep5) | `component_material_number`, `component_unit` | LEFT | `component_quantity_in_base_unit`, `component_base_unit` ; NULL si facteur absent → AMBER (53 268 postes sans conversion MARM aujourd'hui, B15 — à expliquer avant, F9) |
+| `## Tr. 4b` | ⋈ MARC composant puis ⋈ MARC AF (Prep6) | (`component_material_number`, `plant`) / (`material_number`, `plant`) + intervalles | LEFT | fantôme, rebut article, rebut d'ensemble |
 | `## Tr. 5` | drapeau `is_current = recorded_to_date == DATE_SENTINEL` | | | |
 | `## Tr. 6` | PK | | | ci-dessous |
 
@@ -542,8 +579,9 @@ Schéma de sortie (ordre des colonnes) : `bom_item_history_ID`, `plant`, `materi
 `BOM_alternative`, `BOM_number`, `BOM_node`, `BOM_item_counter`, `BOM_allocation_counter`, `BOM_header_counter`,
 `BOM_item_number`, `BOM_item_category`, `component_material_number`, `component_quantity`, `component_unit`,
 `component_quantity_in_base_unit`, `component_base_unit`, `BOM_base_quantity`, `BOM_base_unit`,
-`component_scrap_percentage`, `operation_scrap_percentage`, `is_net_scrap`, `is_fixed_quantity`, `is_phantom_item`,
-`is_bulk_material`, `is_alternative_item`, `alternative_item_group`, `usage_probability`, `issue_storage_location`,
+`component_scrap_percentage`, `material_component_scrap_percentage`, `assembly_scrap_percentage`,
+`operation_scrap_percentage`, `is_net_scrap`, `is_fixed_quantity`, `item_special_procurement_type`,
+`component_special_procurement_type`, `is_phantom_item`, `is_bulk_material`, `is_alternative_item`, `alternative_item_group`, `usage_probability`, `issue_storage_location`,
 `BOM_status`, `is_header_locked`, `header_valid_from_date`, `is_header_deleted`, `header_change_number`,
 `allocation_valid_from_date`, `is_allocation_deleted`, `item_valid_from_date`, `is_item_deleted`,
 `item_change_number`, `lot_size_from_quantity`, `lot_size_to_quantity`, `recorded_from_date`, `recorded_to_date`,
@@ -557,13 +595,13 @@ Schéma de sortie (ordre des colonnes) : `bom_item_history_ID`, `plant`, `materi
      grand `header_valid_from_date <= D` ; exclure si `is_header_deleted` ;
    - allocation : par (… , `BOM_node`) garder le `BOM_allocation_counter` de plus grand `allocation_valid_from_date <= D` ;
      exclure si `is_allocation_deleted` ;
-   - poste : par (… , `BOM_node`) garder le `BOM_item_counter` de plus grand `item_valid_from_date <= D`
-     (départage : compteur le plus grand) ; exclure si `is_item_deleted`.
+   - poste : garder si `item_valid_from_date <= D` et non `is_item_deleted` (un seul `stpoz` par nœud chez
+     Latécoère, B7 : la fin de validité vient de l'allocation STAS ci-dessus).
 3. Résultat : au plus **une** ligne par (usine, AF, utilisation, alternative, nœud) → contrôle RED dans C.
 
-**[À VÉRIFIER]** avec Q5 et un cas réel (CS03 « date de validité » sur un AF modifié par numéro de modification) que
-cette règle reproduit la BOM affichée par SAP. Si Q5 montre que les numéros de modification ne sont quasiment pas
-utilisés, l'étape 2 reste correcte (une seule version par nœud) et ne coûte rien.
+**Indispensable** : 50 % des postes portent un numéro de modification (B6). Sans cette résolution, l'ancien et le
+nouveau nœud d'un poste modifié sont additionnés. **[À VÉRIFIER F6]** sur un cas réel (CS03 « date de validité ») que la
+règle reproduit SAP, et comment `prod_silver.production.bom` (3,2 M lignes pour 4,7 M postes STPO) traite ce point (F10).
 
 ### 5.9 Quality Checks (section groupée)
 
@@ -583,8 +621,7 @@ utilisés, l'étape 2 reste correcte (une seule version par nœud) et ne coûte 
 
 Template Gold : `CATALOG`/`SCHEMA` (override `lab_target_schema`), `save_table(mode="overwrite",
 overwrite_schema=True)` — la table est entièrement reconstructible depuis les stacks, l'overwrite est donc sûr **tant
-que Q12 confirme que les stacks ne sont pas purgés**. Si les stacks ont une rétention, passer au MERGE incrémental du
-§6.6 (même logique). Contrainte `gold_bom_item_history_PK` idempotente. Vue `bom_item_history_exposed` (toutes les
+que les stacks ne sont pas purgés** (confirmé : append + VACUUM seulement, H4). Contrainte `gold_bom_item_history_PK` idempotente. Vue `bom_item_history_exposed` (toutes les
 colonnes sauf celles préfixées `_`). Partitionnement : aucun au départ (Liquid Clustering sur `material_number`,
 `recorded_from_date` à évaluer si la lecture dans C est lente).
 
@@ -593,170 +630,139 @@ colonnes sauf celles préfixées `_`). Partitionnement : aucun au départ (Liqui
 ## 6. Notebook B — `create_gold_order_component_requirement_history`
 
 **Fichier** : `data_asset/mrp/order_component_requirement_history/create_gold_order_component_requirement_history.py`.
-**Objet** : photographier chaque jour les besoins composants de **tous** les OP et OF ouverts, et ne garder que les
-changements (SCD2). C'est la seule source possible de Prévision 1/2 à T0.
+**Objet** : reconstituer, pour chaque semaine depuis septembre 2023, les besoins composants **ouverts** de tous les OP
+et OF (SCD2). C'est la source de Prévision 1/2 à T0.
+
+> **Changement après la découverte du 2026-10-06** (§13) : RESB, PLAF, AFKO et AFPO ont des stacks
+> (`resb_stack` depuis 2023-09-17, les autres depuis fin 2022), alimentés en append (`COPY INTO`) et jamais purgés.
+> B se **reconstruit donc depuis les stacks**, exactement comme A : plus de capture quotidienne urgente, plus de MERGE,
+> plus de mode dégradé (sauf pour T0 < 2023-09-17, simplement hors grille).
 
 ### 6.1 Header
 
 ```
 # GOLD ORDER COMPONENT REQUIREMENT HISTORY
-**Description:** Historique (SCD2) des besoins composants des ordres planifiés (OP, besoins dépendants) et des
-ordres de fabrication (OF, réservations) : quantité de besoin, rebut, fantôme, quantité d'ordre, telles que connues
-chaque jour. Sert à reconstituer la prévision connue à T0 (BOM reliability, Prévisions 1 et 2).
-**Highlighted complexities:** table d'accumulation NON reconstructible : jamais d'overwrite, MERGE idempotent,
-contrôle de complétude du snapshot du jour avant écriture ; conversion OP → OF (nouveau RSNUM, lien AFPO.PLNUM).
-**Intended Pipeline** D_2_MRP_Order_Requirement_History_Data_Asset [TBD]
+**Description:** Historique (SCD2) des besoins composants ouverts des ordres planifiés (OP, besoins dépendants) et des
+ordres de fabrication (OF, réservations) : quantité de besoin, rebut, fantôme, quantité d'ordre, tels que SAP les
+contenait chaque semaine. Sert à reconstituer la prévision connue à T0 (BOM reliability, Prévisions 1 et 2).
+**Highlighted complexities:** resb_stack ≈ 59 Md de lignes (~75 M par extraction) : élagage de partitions sur une
+date par semaine + filtre "besoin ouvert" avant tout le reste ; conversion OP → OF (nouveau RSNUM, lien AFPO.PLNUM) ;
+en-têtes OP/OF alignés sur la date d'extraction RESB.
+**Intended Pipeline** W_2_MRP_Order_Requirement_History_Data_Asset [TBD]
 **Inputs Data**
-- {REFERENCE_READ_ENV}_bronze.sap_latecoere_ecc6.resb_latest
-- {REFERENCE_READ_ENV}_bronze.sap_latecoere_ecc6.plaf_latest
-- {REFERENCE_READ_ENV}_bronze.sap_latecoere_ecc6.afko_latest
-- {REFERENCE_READ_ENV}_bronze.sap_latecoere_ecc6.afpo_latest
-  (ou {REFERENCE_READ_ENV}_gold.mrp.reservation_mrp_sap / {REFERENCE_READ_ENV}_gold.production.work_orders_sap_exposed
-   si Q9/Q10 montrent qu'elles portent tous les champs — réutiliser plutôt que relire le bronze)
+- {REFERENCE_READ_ENV}_landingzone.sap_latecoere_ecc6.resb_stack
+- {REFERENCE_READ_ENV}_landingzone.sap_latecoere_ecc6.plaf_stack
+- {REFERENCE_READ_ENV}_landingzone.sap_latecoere_ecc6.afko_stack
+- {REFERENCE_READ_ENV}_landingzone.sap_latecoere_ecc6.afpo_stack
 **Output Tables (Pipeline)**
 - {PIPELINE_WRITE_ENV}_gold.mrp.order_component_requirement_history
 - {PIPELINE_WRITE_ENV}_gold.mrp.order_component_requirement_history_exposed (view)
 ```
 
-### 6.2 Inputs et Prep
+### 6.2 Dates de snapshot retenues (élagage)
 
-**Prep1 — RESB (postes de réservation / besoins dépendants)**
+Lire 787 extractions RESB de ~75 M lignes n'a aucun intérêt : T0 est au mieux hebdomadaire. Avant toute lecture :
+
+1. Lister les dates d'extraction de `resb_stack` (métadonnées de partition : `SHOW PARTITIONS` ou
+   `select distinct extraction_timestamp`, partitionnement **[À VÉRIFIER F2]**).
+2. Garder **une extraction par semaine** : la dernière extraction de la semaine ISO (`RESB_SNAPSHOT_TIMESTAMPS`,
+   petite liste Python collectée — une action Spark sur des métadonnées, acceptable).
+3. Pour PLAF, AFKO, AFPO : pour chaque date retenue, l'extraction de la même date, sinon la plus récente antérieure
+   (table de correspondance « as-of », comme MAST/STAS dans A).
+4. Lire chaque stack **filtré sur ces timestamps** (`extraction_timestamp IN (...)`) pour que Spark n'ouvre que ces
+   partitions. Contrôle `file_mode` : uniquement des extractions complètes **[À VÉRIFIER F1]** ; une extraction delta
+   ne peut pas servir de snapshot.
+
+### 6.3 Prep
+
+**Prep1 — RESB (besoins)**. Filtre « besoin ouvert » appliqué **dès la lecture** (c'est lui qui ramène ~75 M lignes à
+quelques millions [À VÉRIFIER F2]) : `bdart IN ('AR', 'SB')`, `xloek <> 'X'`, `kzear <> 'X'`, `enmng = 0`.
+Justification : à T0, un OF qui démarrera après T1 n'a encore rien prélevé ; les réservations soldées ou historiques ne
+sont pas une prévision. Conséquence assumée : quand un OF commence à prélever, ses lignes sortent du filtre et la
+version est fermée — sans effet, puisqu'on ne lit B qu'à des dates T0 antérieures au démarrage.
 
 | SAP | Colonne cible | Type | Note |
 |---|---|---|---|
 | `rsnum`, `rspos`, `rsart` | `reservation_number`, `reservation_item`, `reservation_record_type` | string | **clé** |
-| `bdart` | `requirement_type` | string | `AR` réservation d'OF, `SB` besoin dépendant d'OP [À VÉRIFIER Q8] |
+| `bdart` | `requirement_type` | string | `AR` réservation d'OF, `SB` besoin dépendant d'OP [À VÉRIFIER R1] |
 | `aufnr` | `work_order_number` | string | zéros retirés |
 | `plnum` | `planned_order_number` | string | zéros retirés |
 | `matnr` | `component_material_number` | string | zéros retirés |
 | `werks` | `plant` | string | |
-| `bdmng` | `requirement_quantity` | double | ⭐ Prévision 1 (inclut les rebuts) |
+| `bdmng` | `requirement_quantity` | double | ⭐ Prévision 1 (inclut les rebuts) — signe SAP en fin de chaîne |
 | `meins` | `component_base_unit` | string | unité de base |
 | `bdter` | `requirement_date` | date | |
 | `ausch` | `component_scrap_percentage` | double | |
-| `avoau` | `operation_scrap_percentage` | double | |
+| `avoau` | `operation_scrap_percentage` | double | quasi inutilisé dans les BOM (B10) |
 | `netau` | `is_net_scrap` | boolean | |
-| `dumps` | `is_phantom_item` | boolean | ligne de l'article fantôme lui-même (jamais consommée) |
-| `baugr` | `higher_level_assembly` | string | fantôme parent des composants éclatés [À VÉRIFIER] |
+| `dumps` | `is_phantom_item` | boolean | ligne du fantôme lui-même [À VÉRIFIER F4 : présence dans RESB] |
+| `baugr` | `higher_level_assembly` | string | fantôme parent des composants éclatés [À VÉRIFIER R7] |
 | `schgt` | `is_bulk_material` | boolean | |
-| `xloek` | `is_item_deleted` | boolean | |
 | `postp` | `BOM_item_category` | string | |
 | `posnr` | `BOM_item_number` | string | |
-| `stlty`, `stlnr`, `stlkn`, `stpoz` | `BOM_category`, `BOM_number`, `BOM_node`, `BOM_item_counter` | string | lien vers A ; vide = composant ajouté manuellement |
-| `vornr` | `operation_number` | string | [À VÉRIFIER présence] |
+| `stlty`, `stlnr`, `stlkn`, `stpoz` | `BOM_category`, `BOM_number`, `BOM_node`, `BOM_item_counter` | string | lien vers A ; vide = ajout manuel |
+| `vornr` | `operation_number` | string | [À VÉRIFIER R2] |
 
-**Non repris volontairement** : `enmng` (quantité prélevée) et `kzear` (sortie finale) — ils changent pendant la
-production et créeraient une version par jour ; la consommation vient des mouvements (C).
-
-Filtre : `requirement_type IN ('AR', 'SB')` et (`work_order_number` ou `planned_order_number` renseigné). Pas de filtre
-sur `is_item_deleted` : la suppression doit être historisée (elle devient un attribut qui change).
+`xloek`, `kzear`, `enmng` servent au filtre et ne sont pas repris.
 
 **Prep2 — PLAF (en-tête OP)** : `plnum` → `planned_order_number` ; `matnr` → `material_number` ; `plwrk` → `plant` ;
 `gsmng` → `order_quantity` ; `psttr` → `order_planned_start_date` ; `pedtr` → `order_planned_end_date` ;
 `paart` → `order_type` ; `stlal` → `BOM_alternative` ; `stlan` → `BOM_usage` ; `verid` → `production_version`.
-Dédoublonnage + RED d'unicité sur `planned_order_number`.
+RED d'unicité sur (`planned_order_number`, snapshot).
 
 **Prep3 — AFKO + AFPO (en-tête OF)** : `aufnr` → `work_order_number` ; `afpo.matnr` → `material_number` ;
 `afpo.dwerk` → `plant` ; `afko.gamng` → `order_quantity` ; `afko.gstrp` / `gltrp` → `order_planned_start_date` /
 `order_planned_end_date` ; `afko.stlal` / `stlan` → `BOM_alternative` / `BOM_usage` ; `afpo.verid` →
-`production_version` ; `afpo.plnum` → `origin_planned_order_number` (⭐ lien OP → OF). Garder `afpo.posnr = '0001'`
-(une ligne par OF) [À VÉRIFIER : OF multi-postes ?] ; RED d'unicité sur `work_order_number`.
+`production_version` ; `afpo.plnum` → `origin_planned_order_number` (⭐ lien OP → OF). `afpo.posnr = '0001'`
+[À VÉRIFIER R8] ; RED d'unicité sur (`work_order_number`, snapshot).
 
-### 6.3 Transformations
+Communs aux trois : dédoublonnage intra-jour (dernière extraction du jour, cf. doubles extractions observées sur
+MAST/STAS), trim, `try_cast` avec signe SAP, `remove_leading_zeros` sur ordres et matériels.
 
-- `## Tr. 1` RESB (OF) ⋈ en-tête OF sur `work_order_number` (LEFT) ; `## Tr. 2` RESB (OP) ⋈ PLAF sur
-  `planned_order_number` (LEFT) ; `unionByName` des deux (jamais `.union()`), colonne
-  `order_category = 'WORK_ORDER' | 'PLANNED_ORDER'`.
-  Les attributs d'en-tête (quantité d'ordre, dates, alternative) sont **dénormalisés** dans chaque poste : un
-  changement de quantité d'ordre crée une nouvelle version de tous ses postes — c'est voulu (la quantité d'ordre à T0
-  sert à la normalisation, §8.3).
-- `## Tr. 3` `snapshot_date` = date d'extraction du bronze (`_meta_extraction_timestamp` [À VÉRIFIER nom]), **pas**
-  `current_date()` : si le bronze n'a pas été rafraîchi, on n'enregistre pas une fausse date.
-- `## Tr. 4` `_row_hash = xxhash64(toutes les colonnes métier)`.
+### 6.4 Transformations
 
-### 6.4 Clé et colonnes de sortie
+- `## Tr. 1` RESB (OF) ⋈ en-tête OF sur (`work_order_number`, snapshot) — LEFT ; `## Tr. 2` RESB (OP) ⋈ PLAF sur
+  (`planned_order_number`, snapshot) — LEFT ; `unionByName` (jamais `.union()`), colonne
+  `order_category = 'WORK_ORDER' | 'PLANNED_ORDER'`. Les attributs d'en-tête sont dénormalisés dans chaque poste : un
+  changement de quantité d'ordre crée une nouvelle version de ses postes (voulu : la quantité à T0 sert à la
+  normalisation, §8.3).
+- `## Tr. 3` compression en intervalles avec **la même fonction que A** (§5.6) — clé naturelle (`reservation_number`,
+  `reservation_item`, `reservation_record_type`), attributs = toutes les autres colonnes.
+- `## Tr. 4` PK : `order_component_requirement_history_ID = concat_ws("-", reservation_number, reservation_item,
+  reservation_record_type, recorded_from_date)`, en première colonne ; `is_current`.
 
-Clé naturelle : (`reservation_number`, `reservation_item`, `reservation_record_type`).
-PK : `order_component_requirement_history_ID = concat_ws("-", reservation_number, reservation_item,
-reservation_record_type, recorded_from_date)`.
+La fonction de compression est identique dans A et B : en lab elle est copiée dans les deux notebooks (dette technique
+déclarée) ; avant Bitbucket elle part dans `leap_utils` (CLAUDE.md §12 : pas de copier-coller de plus de quelques lignes).
 
-Colonnes : PK, `order_category`, `requirement_type`, `planned_order_number`, `work_order_number`,
+### 6.5 Colonnes de sortie
+
+PK, `order_category`, `requirement_type`, `planned_order_number`, `work_order_number`,
 `origin_planned_order_number`, `plant`, `material_number`, `order_type`, `order_quantity`,
 `order_planned_start_date`, `order_planned_end_date`, `BOM_usage`, `BOM_alternative`, `production_version`,
 `reservation_number`, `reservation_item`, `reservation_record_type`, `component_material_number`,
 `requirement_quantity`, `component_base_unit`, `requirement_date`, `component_scrap_percentage`,
 `operation_scrap_percentage`, `is_net_scrap`, `is_phantom_item`, `higher_level_assembly`, `is_bulk_material`,
-`is_item_deleted`, `BOM_item_category`, `BOM_item_number`, `BOM_category`, `BOM_number`, `BOM_node`,
-`BOM_item_counter`, `operation_number`, `recorded_from_date`, `recorded_to_date`, `is_current`, `_row_hash`,
-`_capture_source` (`'daily_capture'` | `'backfill'`).
+`BOM_item_category`, `BOM_item_number`, `BOM_category`, `BOM_number`, `BOM_node`, `BOM_item_counter`,
+`operation_number`, `recorded_from_date`, `recorded_to_date`, `is_current`.
 
-### 6.5 Quality Checks (avant toute écriture)
+### 6.6 Quality Checks
 
 | Niveau | Contrôle |
 |---|---|
-| RED | Clé naturelle unique dans le snapshot du jour (`expect_compound_columns_to_be_unique`) |
-| RED | PLAF / en-tête OF uniques sur leur clé de jointure |
-| RED | **Complétude** : nb de lignes du snapshot ≥ 80 % du nb de lignes `is_current` de la table (`expect_table_row_count_to_be_between(min_value=…)` [À VÉRIFIER disponibilité]) — protège contre un bronze vide ou partiel qui fermerait toutes les versions courantes |
-| RED | `snapshot_date` > `max(recorded_from_date)` de la table, sinon **skip propre** (log, pas d'erreur) : on ne réécrit pas le passé |
-| AMBER | `material_number` (AF) non nul après jointure d'en-tête |
+| RED | PK non nulle et unique |
+| RED | Clé naturelle unique par snapshot (RESB) ; PLAF et en-tête OF uniques par (ordre, snapshot) |
+| RED | Pas de chevauchement d'intervalles (unicité clé naturelle + `recorded_from_date`) |
+| AMBER | `material_number` (AF) renseigné après jointure d'en-tête |
 | AMBER | `requirement_quantity` non nul |
+| AMBER | Aucune semaine sans snapshot RESB depuis le début (sinon log des semaines manquantes) |
 
-Après le MERGE : RED unicité de la PK et au plus une ligne `is_current` par clé naturelle.
+### 6.7 Outputs
 
-### 6.6 Écriture SCD2 (MERGE Delta)
-
-`save_table(mode="overwrite")` est **interdit** sur cette table hors création initiale. Aucune fonction
-`leap_utils` de MERGE n'est confirmée (§3.5 de CLAUDE.md) → chercher dans le package installé ; à défaut, MERGE Delta
-SQL **à faire valider par l'équipe** (ce n'est pas un `.saveAsTable()`).
-
-```python
-# 1er run : création via table_utils.save_table(dest_table=..., df=df_snapshot_versions, mode="overwrite", overwrite_schema=True)
-#           uniquement si la table n'existe pas (spark.catalog.tableExists), puis contrainte PK.
-df_snapshot.createOrReplaceTempView("requirement_snapshot")
-
-# Étape 1 : fermer les versions courantes modifiées ou disparues
-spark.sql(f"""
-MERGE INTO {DESTINATION_TABLE_FULL_PATH} AS t
-USING requirement_snapshot AS s
-  ON  t.reservation_number = s.reservation_number
-  AND t.reservation_item = s.reservation_item
-  AND t.reservation_record_type = s.reservation_record_type
-  AND t.is_current
-WHEN MATCHED AND t._row_hash <> s._row_hash THEN
-  UPDATE SET t.recorded_to_date = s.recorded_from_date, t.is_current = false
-WHEN NOT MATCHED BY SOURCE AND t.is_current THEN
-  UPDATE SET t.recorded_to_date = DATE'{SNAPSHOT_DATE}', t.is_current = false
-""")
-
-# Étape 2 : insérer les nouvelles versions (nouvelles clés + clés modifiées)
-spark.sql(f"""
-MERGE INTO {DESTINATION_TABLE_FULL_PATH} AS t
-USING requirement_snapshot AS s
-  ON  t.reservation_number = s.reservation_number
-  AND t.reservation_item = s.reservation_item
-  AND t.reservation_record_type = s.reservation_record_type
-  AND t.is_current
-  AND t._row_hash = s._row_hash
-WHEN NOT MATCHED THEN INSERT *
-""")
-```
-
-`requirement_snapshot` porte déjà `recorded_from_date = SNAPSHOT_DATE`, `recorded_to_date = '9999-12-31'`,
-`is_current = true` et la PK. Les deux étapes sont **idempotentes** : relancer le même jour ne crée ni ne ferme rien
-de plus. Une disparition de RESB (OP converti, OF archivé ou soldé) ferme la version — l'historique reste.
-Sécurité : activer la rétention de time travel Delta suffisante sur cette table et ne jamais la `DROP` en dev/lab
-sans copie.
-
-### 6.7 Avant le début de capture : mode dégradé (à afficher, pas à cacher)
-
-Si aucun historique RESB/PLAF n'existe, pour une période dont T0 précède le début de capture :
-- **OF** : les réservations des OF terminés existent encore dans `resb_latest` (jusqu'à archivage) mais avec leurs
-  valeurs *finales* (ajouts manuels, modifications de quantité inclus). Proxy possible : postes issus de la BOM
-  (`BOM_number` renseigné), quantités actuelles → chargement one-shot avec `_capture_source = 'backfill'` et
-  `recorded_from_date = date de création de l'OF` **[TBD métier : accepter ce proxy ?]**.
-- **OP** : aucune reconstitution possible (un OP converti disparaît de SAP).
-- Dans C, `forecast_source` indique pour chaque OF si la prévision vient d'un OP à T0, d'un OF à T0, du proxy, ou
-  n'existe pas. Le rapport doit afficher cette couverture.
+`save_table(mode="overwrite", overwrite_schema=True)` : la table est reconstructible (stacks append-only, VACUUM à
+40 jours ne supprime que des fichiers obsolètes). Si la durée du rebuild complet devient trop longue, passer à un
+rebuild incrémental (ne relire que les semaines postérieures au dernier `recorded_from_date` et refermer les
+intervalles courants) — pas en v1. Contrainte `gold_order_component_requirement_history_PK`, vue `_exposed`.
+Première date T0 possible : 2023-09-17 (début de `resb_stack`).
 
 ---
 
@@ -803,7 +809,7 @@ Par période : OF avec `actual_start_date >= T1` et `actual_finish_date <= T2` (
 Pour chaque OF, prévision **connue à T0** :
 1. si l'OF existait à T0 → ses lignes B avec `recorded_from_date <= T0 < recorded_to_date` (`forecast_source = 'WORK_ORDER_AT_T0'`) ;
 2. sinon, si son OP d'origine (`origin_planned_order_number`) existait à T0 → lignes B de l'OP à T0 (`'PLANNED_ORDER_AT_T0'`) ;
-3. sinon proxy §6.7 (`'RECONSTRUCTED'`) ou rien (`'NONE'` → Prévisions 1/2 NULL, Prévision 3 reste calculée).
+3. sinon rien (`'NONE'` → Prévisions 1/2 NULL, Prévision 3 reste calculée).
 
 **Normalisation du volume [TBD — décision clé]** : la quantité d'ordre à T0 peut différer de la quantité finale
 (OP de 10 devenu OF de 8). Sans correction, la « fiabilité BOM » mesure aussi l'erreur de volume. Proposition par
@@ -817,8 +823,8 @@ défaut : `prévision_normalisée = prévision_T0 × quantité_OF_finale / quant
 - Prévision 1 = Σ `requirement_quantity` par (OF, composant).
 - Prévision 2 = Prévision 1 sans rebut **[TBD : quels rebuts ?]**. Proposition :
   `requirement_quantity / (1 + component_scrap_percentage/100) / (1 + operation_scrap_percentage/100)`, et en plus
-  `/ (1 + assembly_scrap_percentage/100)` quand `is_net_scrap = False` (rebut d'ensemble `MARC.AUSSS` de l'AF —
-  [À VÉRIFIER] s'il est exposé dans `material_plant`). Les quantités fixes ne portent pas de rebut proportionnel.
+  `/ (1 + assembly_scrap_percentage/100)` quand `is_net_scrap = False` (rebut d'ensemble `MARC.AUSSS` de l'AF à T0,
+  lu dans A). Les quantités fixes ne portent pas de rebut proportionnel.
 - Postes de nomenclature (page 3 optionnelle) : composant issu d'un fantôme (`higher_level_assembly` renseigné) →
   `BOM_item_number = '9999'`.
 
@@ -831,14 +837,16 @@ Besoin par poste (unité de base composant) :
 ```
 si is_fixed_quantity : q = component_quantity_in_base_unit
 sinon                : q = component_quantity_in_base_unit / BOM_base_quantity × quantité_OF
-q = q × (1 + component_scrap_percentage/100)        # rebut composant (BOM standard SAP) [TBD : inclus ou non]
+rebut = component_scrap_percentage si > 0, sinon material_component_scrap_percentage   # logique SAP AUSCH / KAUSF [À VÉRIFIER F5]
+q = q × (1 + rebut/100) × (1 + assembly_scrap_percentage/100 si non is_net_scrap)        # [TBD D5 : inclus ou non]
 ```
 puis éclatement des fantômes (§8.6) et Σ par (OF, composant).
 
 ### 8.6 Explosion des fantômes (Prévision 3)
 
-Un poste est fantôme si `is_phantom_item = True` ou si le composant a `SOBSL = '50'` dans `material_plant`
-[À VÉRIFIER]. Boucle bornée :
+Un poste est fantôme si `is_phantom_item = True` dans A (poste `SOBSL = '50'` ou `MARC.SOBSL = '50'` du composant à
+la date K). Genie a répondu « pas de fantôme » en testant `stkkz` (indicateur d'ensemble, pas de fantôme) : à
+re-vérifier (F4). Boucle bornée :
 
 ```python
 MAX_PHANTOM_DEPTH = 5
@@ -911,8 +919,8 @@ C lit A et B dans `dev_lab.lab_jules` quand `lab_target_schema` est renseigné.
 ### 9.2 Ordre et contrôles manuels
 
 1. Q1–Q12 → corrections_log, mise à jour de cette spec (lever les [À VÉRIFIER]).
-2. **B en premier** (le plus urgent : démarre l'horloge de l'historique), deux runs successifs le même jour → la table
-   ne doit pas changer (idempotence) ; un run le lendemain → seules les lignes modifiées sont versionnées.
+2. B sur 4 semaines puis complet : deux runs successifs donnent la même table ; volumes par snapshot cohérents
+   avec F2.
 3. A sur un sous-ensemble (widget de debug : une usine, quelques AF) puis complet ; mesurer durée/volume.
    Contrôle : pour 3 AF, BOM reconstituée à 3 dates vs SAP CS03 (date de validité) et vs l'ancien snapshot du stack.
 4. C sur la période par défaut ; golden examples de la Test Definition (OF connu, composant connu, consommation MB51
@@ -920,10 +928,7 @@ C lit A et B dans `dev_lab.lab_jules` quand `lab_target_schema` est renseigné.
 
 ### 9.3 Capture en attendant la prod
 
-Si aucun historique RESB/PLAF n'existe : planifier B **tout de suite** en job personnel quotidien écrivant dans
-`dev_lab.lab_jules` (widget `lab_target_schema`), en attendant le job prod. À la mise en prod, l'historique accumulé
-en lab sera repris une fois dans `prod_gold.mrp.order_component_requirement_history` (copie one-shot à faire valider
-par CoreAdmin) — sinon les mois de capture lab sont perdus.
+Sans objet : les stacks RESB/PLAF/AFKO/AFPO existent (H2).
 
 ---
 
@@ -931,7 +936,7 @@ par CoreAdmin) — sinon les mois de capture lab sont perdus.
 
 | Job [TBD noms] | Tâches | Fréquence | Cluster |
 |---|---|---|---|
-| `D_2_MRP_Order_Requirement_History_Data_Asset` | B | quotidien, **après** le rafraîchissement bronze RESB/PLAF/AFKO/AFPO | S |
+| `W_2_MRP_Order_Requirement_History_Data_Asset` | B | hebdomadaire (dimanche, après les extractions du samedi) | M multi (à mesurer : ~75 M lignes RESB par extraction) |
 | `W_2_Production_BOM_History_Data_Asset` | A | hebdomadaire (dimanche, après le stack STPO du samedi) | M multi (à mesurer) |
 | `W_3_<Domain>_BOM_Reliability_Project` | C (après A et B) | hebdo ou mensuel [TBD] | S/M |
 
@@ -943,8 +948,8 @@ Tags, `run_as`, notifications, `base_parameters` : CLAUDE.md §11. `lab_target_s
 
 | # | Sujet | Proposition par défaut | Qui |
 |---|---|---|---|
-| D1 | Historique RESB/PLAF existant ? | Q1/Q8 ; sinon capture immédiate | Data |
-| D2 | Proxy OF pour la période avant capture (§6.7) | Accepté, flaggé `RECONSTRUCTED` | Métier |
+| D1 | Historique RESB/PLAF existant ? | ✅ Oui : stacks (H2). Reconstruction depuis 2023-09-17 | — |
+| D2 | T0 antérieur à 2023-09-17 | Hors grille (pas de prévision OP/OF possible) | Métier |
 | D3 | Normalisation volume (§8.3) | prévision × qté finale / qté T0 | Métier |
 | D4 | Prévision 2 : quels rebuts retirer | composant + opération + ensemble | Métier |
 | D5 | Prévision 3 : avec ou sans rebut composant ; date de validité D | avec ; D = début prévu de l'OF connu à T0 | Métier |
@@ -954,11 +959,14 @@ Tags, `run_as`, notifications, `base_parameters` : CLAUDE.md §11. `lab_target_s
 | D9 | Agrégation CP/division | moyenne des erreurs composants | Métier |
 | D10 | Grille P1/P2 | {3} ; étendue {1,2,3,6} si volumétrie OK | Métier |
 | D11 | Classification composant, « PF usage » | à définir | Métier |
-| D12 | Utilisations de BOM (`STLAN`) | `1` | Data (Q4) |
+| D12 | Utilisations de BOM (`STLAN`) | ✅ `1` (99,97 %, B3) | — |
 | D13 | Lecture landing zone en Gold | dette technique déclarée | Équipe LEAP |
-| D14 | MERGE Delta hors `leap_utils` | à valider | Équipe LEAP |
+| D14 | Fonction de compression en intervalles partagée A/B | à mettre dans `leap_utils` avant Bitbucket | Équipe LEAP |
 | D15 | Numéro de UC, domaine Proj, dossier `proj/` | — | Équipe |
 | D16 | Nommage PK/contraintes (Confluence vs existant) | `{table}_ID` / `gold_{table}_PK` | Équipe (CLAUDE.md §16.9) |
+| D17 | Catégories de poste `Z`, `0`, `1`, `2`, `4`, `U`, `V` : prévision ou non ? | à décider après F8 | Métier |
+| D18 | Où est le « +20 % » de rebut (KAUSF, AUSSS, saisie sur l'OF) ? | après F5 et R11 | Data + Métier |
+| D19 | Réutiliser / étendre le job existant `W_3_SAP_AS_Design_BOM_DataAsset` (`prod_silver.production.bom`) ? | après F10 | Équipe LEAP |
 
 ---
 
@@ -974,3 +982,42 @@ Tags, `run_as`, notifications, `base_parameters` : CLAUDE.md §11. `lab_target_s
 | PLAF | `PLNUM` | disparaît à la conversion en OF |
 | AFKO / AFPO | `AUFNR` / `AUFNR, POSNR` | `AFPO.PLNUM` = OP d'origine ; `GSTRI`/`GLTRI` dates réelles |
 | MSEG | `MBLNR, MJAHR, ZEILE` | immuable ; `SHKZG` sens ; `MENGE` unité de base, `ERFMG` unité de saisie |
+
+---
+
+## 13. Résultats de découverte (Genie, 2026-10-06) et impacts
+
+Détail des requêtes et résultats : `Workbench/bom_reliability/working/corrections_log.md`.
+
+### 13.1 Ce qui est confirmé
+
+| Point | Résultat | Impact sur la spec |
+|---|---|---|
+| Stacks | 229 stacks dans `prod_landingzone.sap_latecoere_ecc6`, colonne `extraction_timestamp` partout ; alimentation append (`COPY INTO`) + `OPTIMIZE`, seulement des VACUUM (rétention 40 j), aucune suppression de données | A et B reconstruits par overwrite complet |
+| Profondeur | STPO/STKO 2023-04-23 (hebdo, 181 dates, 7 semaines manquantes) ; MAST/STAS 2024-06-11 (quotidien) ; RESB 2023-09-17 ; PLAF 2022-12 ; AFKO/AFPO 2022-11 ; MARC 2022-11 ; MARM 2023-04 ; MKAL 2023-04 | B depuis les stacks ; T0 ≥ 2023-09-17 |
+| Bronze | Seulement des `_latest`, recréés chaque nuit (CTAS) | Pas d'historique côté bronze |
+| Doubles extractions | MAST et STAS : 7 et 13 jours avec 2 extractions complètes le même jour ; STPO/STKO propres | Dédoublonnage intra-jour obligatoire |
+| Catégories de BOM | STPO : `K` 17,2 M, `M` 4,7 M, `S` 926 ; 961 `stlnr` partagés K/M | Filtre `stlty = 'M'` sur toutes les tables (bug Genie D2 confirmé) |
+| Utilisation | `stlan = '1'` sur 99,97 % ; 80 MAST sans usine | `BOM_USAGES = ["1"]`, exclusion `werks` NULL |
+| Alternatives | 33 575 (AF, usine) avec plusieurs alternatives (jusqu'à 26) ; 219 `stlnr` partagés entre AF | L'alternative de l'OF est indispensable (C) |
+| Clés | Aucun doublon de clé par snapshot dans STPO/STKO/STAS/MAST | Contrôles RED conservés (garde-fous) |
+| Versionnement | 50 % des postes avec numéro de modification ; jamais 2 `stpoz` par nœud ; 0 `lkenz` dans STPO | Validité par nouveaux nœuds + STAS (§5.8) |
+| Format | Signe moins en fin (`1.000-`, 1 080 postes), espaces, point décimal | `sap_quantity()` avec `try_cast` (le `CAST` proposé par Genie lève une erreur en mode ANSI) |
+| Rebut BOM | `ausch > 0` : 1 859 postes (top 10 %, 30 %, 35 %) ; `avoau` : 5 ; `netau` : 10 | Le rebut est ailleurs → MARC (F5) |
+| Vrac / fixe | `schgt` 125 567, `fmeng` 69 951 | D8 et formule de la Prévision 3 |
+| Quantité de base | `bmeng ≠ 1` pour 3,5 % des BOM (2, 6, 4, 12…), jamais 0 | Bug Genie C3 confirmé |
+| Unités | 7,6 % des postes en unité ≠ unité de base ; 53 268 sans conversion MARM | AMBER + analyse F9 |
+| Orphelins | 97 postes STPO sans STAS, 1 STKO sans MAST | Jointures INNER justifiées |
+| Existant | `prod_silver.production.bom` (job `W_3_SAP_AS_Design_BOM_DataAsset`, hebdo) : M + stlan 1 + sans `lkenz`, 186 colonnes, 3,2 M lignes | Règle zéro : lire ce notebook (F10, D19) |
+
+### 13.2 Réponses de Genie à corriger
+
+- **B11/B12/B13 « pas de fantôme »** : Genie a testé `stkkz`, qui n'est pas l'indicateur fantôme. Le fantôme est
+  `SOBSL = '50'` (poste STPO ou MARC du composant) et `DUMPS` dans RESB. À refaire (F4).
+- **B9** : la formule proposée utilise `CAST` (lève une erreur en ANSI) : `try_cast`.
+- **B7** : « aucun versionnement par `stpoz` » est exact mais ne veut pas dire « pas de versionnement » : il passe par
+  de nouveaux nœuds (F6).
+
+### 13.3 Questions de suivi
+
+Voir `working/genie_questions_and_output_tests.md` §1.9 (F1–F12), puis les blocs 4 à 6 restants.

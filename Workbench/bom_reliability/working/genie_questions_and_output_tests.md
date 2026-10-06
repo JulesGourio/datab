@@ -121,6 +121,38 @@ Sur le **dernier** snapshot de chaque stack, sauf mention contraire.
 Chaque exemple est ensuite vérifié dans SAP (CS03 à date, CO03, MB51, MD04) par le métier : c'est la référence des
 tests A5, B6 et C8 ci-dessous.
 
+### 1.9 Questions de suivi après les blocs 1 à 3 (F1–F12)
+
+Bloc prêt à coller (après la consigne 1.0) :
+
+```
+F1. Pour resb_stack, plaf_stack, afko_stack, afpo_stack, stpo_stack, stko_stack, stas_stack, mast_stack, marc_stack, marm_stack (prod_landingzone.sap_latecoere_ecc6) : valeurs distinctes de file_mode et nombre de dates d'extraction par valeur. Existe-t-il des extractions partielles (delta) ou toutes sont-elles complètes ?
+
+F2. resb_stack : (a) colonnes de partitionnement (DESCRIBE DETAIL) ; (b) nombre de dates d'extraction par mois ; (c) sur la dernière extraction : nombre total de lignes, et nombre de lignes avec bdart IN ('AR','SB') AND coalesce(xloek,'') <> 'X' AND coalesce(kzear,'') <> 'X' AND enmng = 0 (après conversion numérique de enmng) ; (d) même comptage sur une extraction de septembre 2024 et une de mars 2025.
+
+F3. plaf_stack, afko_stack, afpo_stack, mkal_stack, marc_stack : colonnes de partitionnement et nombre de dates d'extraction par mois sur les 12 derniers mois.
+
+F4. Fantômes : (a) liste des colonnes de stpo_stack ; (b) sur le dernier snapshot, nombre de postes stlty = 'M' avec sobsl = '50' ; (c) dans prod_bronze.sap_latecoere_ecc6.marc_latest, nombre d'articles avec sobsl = '50' par werks ; (d) combien de ces articles apparaissent comme idnrk dans stpo_stack (stlty = 'M', dernier snapshot) ; (e) la colonne dumps existe-t-elle dans resb_stack, et combien de lignes de la dernière extraction ont dumps = 'X' ; (f) un exemple d'ordre de fabrication avec une ligne dumps = 'X' : toutes ses lignes RESB avec rspos, posnr, matnr, dumps, baugr, bdmng.
+
+F5. Rebuts au niveau article : dans prod_bronze.sap_latecoere_ecc6.marc_latest, nombre d'articles avec kausf > 0 et top 10 des valeurs ; nombre avec ausss > 0 et top 10 des valeurs. Dans la dernière extraction de resb_stack (bdart IN ('AR','SB')), nombre de lignes avec ausch > 0 et top 10 des valeurs.
+
+F6. Versionnement par numéro de modification : (a) dernier snapshot de stpo_stack stlty = 'M' : nombre de postes avec vgknt non vide ; (b) dernier snapshot de stas_stack stlty = 'M' : nombre de lignes avec lkenz = 'X' ; (c) donne un exemple : un poste stpo (stlnr, stlkn) avec vgknt renseigné, la ligne stpo du nœud vgknt (ancien poste), et toutes les lignes stas_stack des deux nœuds (stlal, stasz, datuv, lkenz, aennr), sur le dernier snapshot.
+
+F7. Dernier snapshot : nombre de postes stpo_stack stlty = 'M' avec datuv postérieur à la date d'extraction (validité future), et nombre de lignes stas_stack avec datuv postérieur.
+
+F8. Catégories de poste : existe-t-il une table de textes des catégories de poste (T418T ou équivalent) en bronze ou en gold ? Pour chaque postp (Z, 0, 1, 2, 4, U, V, D, N), 3 exemples de idnrk avec leur description article. Les composants des postes Z et 0 apparaissent-ils dans prod_gold.supply_chain_logistic.part_movement_exposed avec un Work_order (nombre de mouvements sur 12 mois) ?
+
+F9. Parmi les 53 268 postes dont l'unité diffère de l'unité de base sans conversion MARM : top 20 des couples (unité STPO, unité de base MARA) avec leur nombre. Vérifie que la jointure idnrk = matnr a été faite après suppression des zéros non significatifs des deux côtés.
+
+F10. prod_silver.production.bom et le job W_3_SAP_AS_Design_BOM_DataAsset : (a) chemin du ou des notebooks du job et liste de toutes les tables qu'il écrit (silver et gold) ; (b) pourquoi 3,2 M lignes alors que STPO stlty = 'M' en a 4,7 M : filtre sur datuv, sur postp, sur la validité STAS ? (c) contient-elle à la fois l'ancien et le nouveau nœud d'un poste modifié (vgknt) ?
+
+F11. mkal_stack : fréquence d'extraction (dates par mois) et colonnes stlal, stlan, adatu, bdatu, verid présentes ?
+
+F12. Dans afpo_stack (dernière extraction) : la colonne plnum existe-t-elle, et taux de remplissage pour les ordres créés depuis 2024 ? Dans afko_stack : colonnes gstri, gltri, getri, gamng, stlal, stlan présentes ?
+```
+
+Après F1–F12 : blocs 4 à 6 (R, W, M, D, E). R5 et R10 se font désormais sur `resb_stack` plutôt que `resb_latest`.
+
 ---
 
 ## 2. Tests des sorties (lab : `dev_lab.lab_jules`)
@@ -167,17 +199,17 @@ WHERE to_date(extraction_timestamp) = s.d AND stlty = 'M'
 |---|---|---|
 | B1 | PK unique, non nulle | 0 |
 | B2 | Au plus une ligne `is_current` par (`reservation_number`, `reservation_item`, `reservation_record_type`) | 0 doublon |
-| B3 | **Idempotence** : relancer le notebook le même jour | 0 ligne insérée, 0 ligne fermée (comparer `DESCRIBE HISTORY` : `numTargetRowsInserted/Updated = 0`) |
-| B4 | Run du lendemain : lignes fermées + insérées = lignes réellement modifiées dans `resb_latest` (comparaison des deux extractions) | Égalité |
-| B5 | Nombre de lignes courantes = nombre de lignes de `resb_latest` après filtres | Égalité |
-| B6 | **Garde-fou de complétude** : simuler un snapshot vide (debug sur une usine inexistante) | Le notebook s'arrête en RED, la table n'est pas modifiée |
-| B7 | Garde-fou de date : relancer avec une date de snapshot antérieure au max de `recorded_from_date` | Skip propre, table inchangée |
+| B3 | **Reconstitution d'un snapshot** : à 3 dates retenues, les lignes `recorded_from_date <= S < recorded_to_date` = les lignes de `resb_stack` à S après les mêmes filtres (besoins ouverts AR/SB) | `EXCEPT` vide dans les deux sens |
+| B4 | Une seule extraction RESB lue par semaine ; PLAF/AFKO/AFPO alignés sur la même date ou la plus proche antérieure | Vrai (log des timestamps retenus) |
+| B5 | Nombre de lignes courantes = lignes de la dernière extraction RESB retenue après filtres | Égalité |
+| B6 | Deux runs successifs sans nouvelle extraction | Table identique |
+| B7 | Aucune extraction `file_mode` delta parmi les dates retenues | 0 (F1) |
 | B8 | Conversion OP → OF (golden E2) : la ligne de l'OP se ferme le jour de la conversion, les lignes de l'OF apparaissent le même jour, `origin_planned_order_number` de l'OF = numéro de l'OP | Vrai |
 | B9 | Aucune ligne `recorded_from_date > current_date()` ni `recorded_to_date <= recorded_from_date` | 0 |
 | B10 | Répartition `order_category` (OP / OF) et `requirement_type` | Cohérente avec R1 |
 | B11 | AF (`material_number`) renseigné après jointure d'en-tête | ≥ 99 % [seuil à confirmer] |
-| B12 | `enmng` / `kzear` absents : une sortie de stock sur un OF ne crée pas de nouvelle version | Vrai sur un OF en cours |
-| B13 | Après 7 jours de capture : taille de la table et nombre de versions par jour | Noté pour la volumétrie |
+| B12 | Un OF qui commence à prélever sort du périmètre « ouvert » : sa version est fermée à la semaine du premier prélèvement | Vrai sur un OF en cours |
+| B13 | Durée du run, taille de la table, nombre moyen de versions par poste | Noté pour la volumétrie |
 
 ### 2.3 C — tables Proj
 
