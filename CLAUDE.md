@@ -4,6 +4,23 @@ This file is the working contract for anyone (human or Claude) writing Databrick
 specs in this repository. It condenses the LEAP Confluence (chapters 1–16 + the Data Engineering Code
 Template). When this file and Confluence disagree, **Confluence wins** — then fix this file.
 
+## 0. About this repository and workflow
+
+This is a **personal GitHub repo**, separate from the company Bitbucket repo. It is a sandbox where notebooks,
+bundles and specs are written **following every LEAP convention in this file** (notebooks, jobs, naming, quality…),
+so that they can later be moved to the Bitbucket repo as-is.
+
+Lifecycle of a piece of work:
+1. **Write here** (Claude Code, no Databricks access from this environment — nothing can be executed here).
+   Commit and push **directly to `main`**, no PR, no review gate in this repo; keep commits small and descriptive.
+2. **Test on Databricks** by importing/syncing the notebooks (dev environment). Fixes found while testing are
+   committed back here so this repo stays the source of truth.
+3. **Move to Bitbucket** at the end: branch `feature/<maingoal_object>` / `bugfix/<maingoal_object>` from the
+   Bitbucket `main`, PR, LEAP Convention Checker, Regression Gate, review, prod promotion (§12–§13).
+
+Consequence: the Bitbucket-side gates (§12 PR, §13 Regression Gate) are **not** run here, but the code must already
+pass them — write as if the Convention Checker will run on it.
+
 > **Rule zero:** before writing anything, open the closest sibling notebook/bundle in the repo and match it.
 > The reference notebook shipped with this repo is
 > [`examples/gold/create_gold_work_order_operation.py`](examples/gold/create_gold_work_order_operation.py)
@@ -524,6 +541,10 @@ CLI: `databricks bundle validate|deploy -p job-runner-sa-dev -t dev`; bundle-ize
 
 ## 12. Git, PR and review
 
+**In this personal repo:** direct commits/pushes to `main`, no PR. Never force-push (keeps history usable when the
+work is later moved to Bitbucket). Use `log.info()/log.warning()` — **never `print()`**.
+
+**On the company Bitbucket repo (final step — apply when moving the work there):**
 - Branches from `main`: `feature/<maingoal_object>` or `bugfix/<maingoal_object>` (ideally matching the Jira EPIC).
 - Merge **only via Pull Request**; **never force-push**; no direct push to `main`.
 - PR description: **Description** (business + technical, key points) · **Changes** (bullets) · **Links**
@@ -534,7 +555,6 @@ CLI: `databricks bundle validate|deploy -p job-runner-sa-dev -t dev`; bundle-ize
 - Review general advice, in order: use `leap_utils` · document the *why* · config-driven over hardcoded lists ·
   careful names (they outlive the PR) · no copy-paste of more than a few lines (extract to `leap_utils`/helper)
   · files in the right place.
-- Use `log.info()/log.warning()` — **never `print()`**.
 
 PR review checklist (tables, columns, DQ, PK, docs) = §8 + §4/§5 PK rules + table & column descriptions present
 in the Databricks catalog.
@@ -542,6 +562,8 @@ in the Databricks catalog.
 ---
 
 ## 13. Moving to prod
+
+*(Company process, applies once the work is on Bitbucket — not executed from this repo.)*
 
 `Dev → UAT → Prod`, strictly sequential.
 
@@ -616,5 +638,8 @@ see Confluence chapter 16; not yet detailed here.
 8. When writing DAS Excel files, use PowerShell COM, not Python.
 9. Open points (not defined yet — say "to be confirmed", don't decide silently): Input quality checks layout,
    PK/constraint naming of existing notebooks vs Confluence, exposed view for each Gold, Gold historisation, rate-type-to-asset-type mapping, where to put logging, Self-service details.
-10. Final answer after any change: list files touched, which checklist items were verified, and anything
+10. Workflow reminder: write here → test on Databricks dev → port to Bitbucket with PR. Push straight to `main`
+    in this repo. When the user reports a test result from Databricks (error, wrong counts…), fix it here and note
+    the fix in the notebook's `Technical debt` or the corrections log if it reveals a rule worth keeping.
+11. Final answer after any change: list files touched, which checklist items were verified, and anything
     that could not be verified (no Databricks connection in this environment — notebooks can't be run here).

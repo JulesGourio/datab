@@ -1,6 +1,9 @@
 # datab — LEAP Databricks notebooks
 
-Repository for Databricks notebooks, bundles and specifications following the LEAP conventions.
+Personal sandbox for Databricks notebooks, bundles and specifications, written to the LEAP conventions.
+
+**Workflow:** write here (direct push to `main`, no PR) → test the notebooks on Databricks dev → move them to the
+company Bitbucket repo with a PR, Convention Checker and Regression Gate at the end. See CLAUDE.md §0.
 
 - **[CLAUDE.md](CLAUDE.md)** — the coding guidelines (notebook structure, Silver/Gold/Proj rules, quality
   checks, naming, jobs, PR, prod, documentation). Read automatically by Claude Code; also the human reference.
