@@ -21,6 +21,25 @@ Lifecycle of a piece of work:
 Consequence: the Bitbucket-side gates (§12 PR, §13 Regression Gate) are **not** run here, but the code must already
 pass them — write as if the Convention Checker will run on it.
 
+### 0.1 Lab test target: `dev_lab.lab_jules`
+
+During notebook test phases (step 2 above), **every table a notebook writes goes to `dev_lab.lab_jules`**, never to
+`dev_silver` / `dev_gold` / `dev_proj`:
+
+- The redirection is a widget, not code: `lab_target_schema` (empty by default, present in all `templates/`).
+  Run the notebook with `lab_target_schema = dev_lab.lab_jules`; the `# Outputs` cell then sets
+  `CATALOG, SCHEMA = LAB_TARGET_SCHEMA.split(".")`. Jobs (DAB) never pass it.
+- **Never commit `dev_lab` / `lab_jules` as a literal or as a widget default** — it is a hardcoded environment
+  (Convention Checker BLOCKER). Literal lab paths are allowed only in specs/docs and in ad-hoc test cells that are
+  removed before the move to Bitbucket.
+- Table name in the lab = the final table name (`dev_lab.lab_jules.bom_item_history`, `_exposed` view included). If
+  two layers produce the same name, prefix with the layer (`gold_…`) in the lab only.
+- A notebook that reads a table produced **by the same project** (Gold reading its own Silver, Proj reading its own
+  Gold) reads it from `LAB_TARGET_SCHEMA` when the widget is set. Inputs owned by other assets are read as usual
+  (`REFERENCE_READ_ENV` / `PIPELINE_READ_ENV`).
+- Run with `pipeline_write_env = dev`, `reference_read_env = prod`. Record row counts and AMBER warnings of each lab
+  run in `Workbench/<asset>/working/corrections_log`.
+
 > **Rule zero:** before writing anything, open the closest sibling notebook/bundle in the repo and match it.
 > The reference notebook shipped with this repo is
 > [`examples/gold/create_gold_work_order_operation.py`](examples/gold/create_gold_work_order_operation.py)
@@ -638,7 +657,7 @@ see Confluence chapter 16; not yet detailed here.
 8. When writing DAS Excel files, use PowerShell COM, not Python.
 9. Open points (not defined yet — say "to be confirmed", don't decide silently): Input quality checks layout,
    PK/constraint naming of existing notebooks vs Confluence, exposed view for each Gold, Gold historisation, rate-type-to-asset-type mapping, where to put logging, Self-service details.
-10. Workflow reminder: write here → test on Databricks dev → port to Bitbucket with PR. Push straight to `main`
+10. Workflow reminder: write here → test on Databricks dev (outputs in `dev_lab.lab_jules`, §0.1) → port to Bitbucket with PR. Push straight to `main`
     in this repo. When the user reports a test result from Databricks (error, wrong counts…), fix it here and note
     the fix in the notebook's `Technical debt` or the corrections log if it reveals a rule worth keeping.
 11. Final answer after any change: list files touched, which checklist items were verified, and anything

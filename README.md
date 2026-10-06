@@ -10,6 +10,7 @@ company Bitbucket repo with a PR, Convention Checker and Regression Gate at the 
 - **[examples/gold/create_gold_work_order_operation.py](examples/gold/create_gold_work_order_operation.py)** — a real
   Gold notebook kept verbatim as the reference for structure and house patterns (CLAUDE.md §3.4 lists what to
   copy and the deviations **not** to copy).
+- **[Workbench/bom_reliability/](Workbench/bom_reliability/)** — BOM history & reliability: technical spec (historisation of BOMs and MRP requirements, Genie review).
 - **[templates/](templates/)** — start every new notebook/bundle from these:
   - `notebook_silver_template.py`, `notebook_gold_template.py`, `notebook_proj_template.py`
   - `bundle/` — DAB skeleton (`databricks.yml`, `resources/job.yml`)
