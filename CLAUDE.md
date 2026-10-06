@@ -5,8 +5,11 @@ specs in this repository. It condenses the LEAP Confluence (chapters 1–16 + th
 Template). When this file and Confluence disagree, **Confluence wins** — then fix this file.
 
 > **Rule zero:** before writing anything, open the closest sibling notebook/bundle in the repo and match it.
-> Where this file names a `leap_utils` function, its exact signature must be checked against the
-> installed package / an existing notebook — do not guess arguments.
+> The reference notebook shipped with this repo is
+> [`examples/gold/create_gold_work_order_operation.py`](examples/gold/create_gold_work_order_operation.py)
+> (see §3.4 for what to copy and what **not** to copy from it).
+> `leap_utils` calls whose exact signature is confirmed by that example are listed in §3.5; for any other
+> function, check the installed package / an existing notebook — do not guess arguments.
 
 ---
 
@@ -50,6 +53,7 @@ Workbench/<asset>/Spec Output/      # DAS, test_definition.md, PowerBI guides
 Workbench/<asset>/working/          # corrections_log
 leap_utils/                         # shared library (own PR rules, see §14)
 templates/                          # notebook / bundle templates (start from these)
+examples/gold/                      # reference notebook (verbatim, see §3.4)
 ```
 
 - Notebook file name: `create_{layer}_{asset_name}.py`, snake_case (checked by the Convention Checker).
@@ -61,70 +65,153 @@ templates/                          # notebook / bundle templates (start from th
 
 ## 3. Notebook structure (mandatory for all industrial pipeline notebooks)
 
-Fixed section order — **never delete or reorder a section**; if empty, keep it and write `#N/A`:
+### 3.1 Sections
 
-| # | Section | Content |
+Fixed section order — **do not reorder or drop a section**; if a section is empty, keep its title and write `#N/A`.
+Section titles are `# <Title>` markdown cells, exactly as in the reference notebook:
+
+| # | Section (markdown title) | Content |
 |---|---------|---------|
-| 1 | **Script Overview** | Pure markdown: script name + layer, purpose, pipeline it belongs to, input tables (env pattern), output tables (env pattern). First cell of the notebook. |
-| 2 | **Technical Debt** | Pure markdown: known debt, linked to where it occurs in the code if possible. |
-| 3 | **Configuration** | Imports, widgets, env variables, logger, notebook "modes". |
-| 4 | **Inputs** | Every input: Bronze/Silver/Gold tables, file reads, manual declarations. |
-| 5 | **Input quality checks** (TBD) | Freshness / completeness checks deciding whether to launch. Keep as `#N/A` until agreed. |
-| 6 | **Data Preparation** | Single-dataset work: filtering, format cleaning (dates, leading zeros), renaming, prefixing. |
-| 7 | **Data Transformations** | Joins, conversions, enrichments, calculated columns. |
-| 8 | **Quality Checks** | All GX checks, grouped, immediately before Outputs. |
-| 9 | **Outputs** | `save_table`, PK constraint, views. |
+| 0 | **`# <LAYER> <ASSET NAME>`** (first cell) | Notebook header, see §3.2. |
+| 1 | **`# Technical debt`** | Pure markdown: known debt, linked to where it occurs in the code. |
+| 2 | **`# Configuration`** | Subsections `## Config Standard Package Imports`, `## Config LEAP Function Imports`, `## Config Widgets` (+ `### Debug Boolean`), `## Config logger`. |
+| 3 | **`# Inputs`** | `## Import LEAP tables` → `### Gold tables`, `### Bronze tables`… One block per input table group. |
+| – | *Input quality checks* | **TBD** (freshness/completeness). Not in the templates nor the reference notebook yet; add `# Input quality checks` + `#N/A` once the team agrees on it. |
+| 4 | **`# Data Preparation`** | Blocks titled `##Prep<N> - <what>`: single-dataset work (select, filter, rename, cast, dedup, leading zeros). |
+| 5 | **`# Data Transformations`** | Blocks titled `## Tr. <N> - <what>`: joins, calculations, ID column. |
+| 6 | **`# Quality Checks`** | All GX checks, grouped, immediately before Outputs. |
+| 7 | **`# Outputs`** | Save, PK constraint, exposed view. |
 
-Hierarchy used in markdown titles: **Section → Subsection → Block → Sub-block** (so the side TOC reflects it).
-Data Preparation and Data Transformations have no fixed subsections — they are made of blocks.
+Hierarchy (so the side TOC works): **Section (`#`) → Subsection (`##`) → Block (`###`) → Sub-block**.
 
 Rules:
-- A **block** = one markdown cell explaining the *why*, followed by the code doing one distinct action.
-  Prefer many small blocks over a big one. Do not worry about "too much markdown".
-- **One block per input table. One block per prep step.** Prep as much as possible before transforming.
+- A **block** = one markdown cell explaining the *why*, followed by the code cell(s) doing one distinct action.
+  Prefer many small blocks (one join per cell, one rename per cell). Don't worry about "too much markdown".
+- **One block per input table (group), one `Prep` block per prepared dataset.** Prepare each dataset fully
+  (select / filter / cast / dedup) *before* the joins in Transformations.
 - **No `# DBTITLE` markers.**
-- Tech debt → link to the code location. Functional/business reasoning goes in the notebook (the *why*, not a
-  restatement of the code).
-- Notebook files are the Databricks source format (`# Databricks notebook source`,
-  `# MAGIC %md`, `# COMMAND ----------`).
+- Functional/business reasoning goes in the notebook markdown (the *why*, not a restatement of the code).
+- Notebook files use the Databricks source format (`# Databricks notebook source`, `# MAGIC %md`,
+  `# COMMAND ----------`).
 - Start from `templates/` — exploratory code can be migrated into the template afterwards.
 
-### Imports
+### 3.2 Notebook header (first cell)
+
+```
+# <LAYER> <ASSET NAME>
+**Description:**            what the asset centralises, business objective
+**Highlighted complexities:** what a reader must know before touching the code
+**Intended Pipeline**       job / pipeline name(s)
+**Inputs Data**             one bullet per input table, with the env pattern ({REFERENCE_READ_ENV}_gold.…)
+**Output Tables (Pipeline)** one bullet per output, with {PIPELINE_WRITE_ENV}_…
+```
+Proj notebooks also list the business meaning of every calculated column in the header.
+
+### 3.3 Imports, widgets, logger
 
 ```python
-import pyspark.sql.functions as f
-from leap_utils.data_asset import table_utils
+import time
+from pyspark.sql import functions as f          # PySpark only through the f. namespace
+from pyspark.sql.utils import AnalysisException
+from pyspark.sql.window import Window
+
+from leap_utils.data_asset import table_utils   # import modules, not individual functions
 from leap_utils.common import logger
 from leap_utils.common.validation import gx_validation
 from great_expectations.dataset import SparkDFDataset
 ```
 
-- Import **modules, not individual functions** (`table_utils.save_table(...)`, never `from … import save_table`).
-- PySpark functions only through the `f.` namespace — never `from pyspark.sql.functions import col, …`.
-
-### Widgets / environments (all notebooks)
-
 ```python
-dbutils.widgets.removeAll()   # MUST be the first call, otherwise interactive re-runs fail
+dbutils.widgets.removeAll()   # first widget call, otherwise interactive re-runs fail
 dbutils.widgets.text("pipeline_write_env", "dev")
+PIPELINE_WRITE_ENV = dbutils.widgets.get("pipeline_write_env")
 dbutils.widgets.text("pipeline_read_env", "dev")
+PIPELINE_READ_ENV = dbutils.widgets.get("pipeline_read_env")
 dbutils.widgets.text("reference_read_env", "prod")
+REFERENCE_READ_ENV = dbutils.widgets.get("reference_read_env")
+dbutils.widgets.text("by_pass_quality_checks", "false")     # downgrades RED -> AMBER, debug/backfill only
+BYPASS_QUALITY_CHECKS = dbutils.widgets.get("by_pass_quality_checks").lower() == "true"
 dbutils.widgets.text("debug", "False")
+DEBUG = dbutils.widgets.get("debug").lower() == "true"
 dbutils.widgets.dropdown("log_level", defaultValue="info",
                          choices=["debug", "info", "warning", "error", "critical"])
+LOG_LEVEL = dbutils.widgets.get("log_level")
+
+log = logger.setup_applevel_logger(log_level=logger.LOGGER_MAPPING[LOG_LEVEL])
 ```
 
 | What is read | Variable |
 |---|---|
-| Bronze source tables | `REFERENCE_READ_ENV` |
-| SAP header tables | `REFERENCE_READ_ENV` |
-| Reference/master Gold tables | `REFERENCE_READ_ENV` |
-| Upstream table from *another* data asset | `PIPELINE_READ_ENV` |
-| Own Silver table read by Gold; Gold read by Proj | `PIPELINE_WRITE_ENV` |
+| Bronze tables, SAP header tables | `REFERENCE_READ_ENV` |
+| Reference / master-data Gold tables (`*_exposed`) | `REFERENCE_READ_ENV` |
+| Table produced by *another* data asset of the same pipeline | `PIPELINE_READ_ENV` |
+| Own Silver read by Gold; Gold read by Proj | `PIPELINE_WRITE_ENV` |
 | Anything written | `PIPELINE_WRITE_ENV` |
 
 **Never hardcode `dev`/`uat`/`prod`** in a table path (Convention Checker BLOCKER).
 Every source table is read **once**, in Inputs — never re-read in Preparation/Transformations.
+
+### 3.4 Reference example and house patterns
+
+[`examples/gold/create_gold_work_order_operation.py`](examples/gold/create_gold_work_order_operation.py) is a real
+Gold notebook kept verbatim. Patterns worth copying:
+
+- **Column selection in UPPERCASE constants** (`COL_ALLOC_TABLE`, `COL_WO`, `AFRU_COLUMNS`) mixing plain names and
+  `f.col(...).alias(...)`; rename maps as constants too (`AFRU_COLUMNS_RENAME` + `withColumnsRenamed`).
+- **Dedup the reference side on its join key before the join** (`dropDuplicates([...])`); when "latest wins",
+  use `Window.partitionBy(...).orderBy(f.desc(...))` + `row_number()` + `filter("rn = 1")`.
+- **Dates with `f.try_to_date(col, "yyyyMMdd")`**.
+- **One LEFT join per cell**, helper columns (e.g. `site_prefix`) created for a join and dropped right after;
+  multi-condition joins built as a `join_cond` list.
+- **Aggregating statuses**: `groupBy(...).agg(f.concat_ws(" ", f.collect_list(...)))` then derive booleans/labels
+  with `f.when(...).otherwise(...)`.
+- **GX datasets declared next to the prepared table** (`df_gx_wbs = SparkDFDataset(df, persist=False)`, no Spark
+  action) and **checked only in the grouped `# Quality Checks` section**: uniqueness of every reference join key
+  (`expect_column_values_to_be_unique`, `expect_compound_columns_to_be_unique`) is how join fan-out is guarded,
+  next to the PK checks on the final table.
+- **Bronze tables read directly in Gold** (`..._bronze.sap_latecoere_ecc6.<table>_latest`) when no Gold table
+  exposes the information; Gold assets can be assembled from several `*_exposed` Gold tables without any Silver.
+- **Outputs**: `CATALOG`/`SCHEMA`/`DESTINATION_TABLE` constants → `CREATE DATABASE IF NOT EXISTS` → `save_table`
+  inside `try/except AnalysisException` with timing log → **idempotent PK constraint** (look up
+  `system.information_schema.table_constraints`; only if absent, set NOT NULL then add PK).
+- `Technical debt` states concrete debt (e.g. "PIPELINE_READ_ENV used for X instead of REFERENCE_READ_ENV").
+
+**Deviations in the example — do NOT copy** (they would be flagged by the Convention Checker / review, or differ
+from Confluence):
+- `df_mapping_site` reads `prod_bronze.manual_input…` — hardcoded environment (BLOCKER). Use `{REFERENCE_READ_ENV}_bronze…`.
+- `.cast(DoubleType())` and `f.to_*` on quantities — use `try_cast` semantics (STANDARD).
+- `fiscal_year` falls back on `f.year(f.current_date())` — value drifts on reruns; flag it in the spec if deliberate.
+- PK is named `WO_operation_id` and constrained as `work_order_operation_pk`; Confluence convention is
+  `{table}_ID` and `gold_{table}_PK` (templates follow Confluence — **to be confirmed with the team**).
+- PK reordering is done inside `# Quality Checks`; it belongs in Transformations (`Tr. N - Create ID column`).
+- No `removeAll()` before the widgets; `df_customer_order_raw` is read but never used (remove unused inputs);
+  `raise Exception()` without message (re-raise with `raise`); `df.count()` for logging triggers an extra action.
+- No `_exposed` view is created for the output; the Gold checklist requires one unless the DAS says otherwise
+  (**to be confirmed** for this asset).
+- `df_gx_wbs` is built on the raw Gold table while the joined table is the `.distinct()` of 4 columns — build GX
+  datasets on the exact dataframe that is joined.
+- No `Input quality checks` section (still TBD).
+
+### 3.5 `leap_utils` signatures confirmed by the reference notebook
+
+```python
+table_utils.remove_leading_zeros(df=df, column_names=["work_order", "work_order_operation"])
+table_utils.save_table(dest_table=FULL_PATH, df=df, mode="overwrite", overwrite_schema=True)   # returns a result or None
+table_utils.set_table_column_not_null(table_path=FULL_PATH, column="pk_col")
+table_utils.add_table_primary_key(table_path=FULL_PATH, pk_name="gold_<table>_PK", columns="pk_col")  # comma-separated
+logger.setup_applevel_logger(log_level=logger.LOGGER_MAPPING[LOG_LEVEL])
+gx_validation.validate_and_log_gx_results(
+    quality_check_results=[...], validation_level="RED" | "AMBER",
+    info_message="...", error_message="...",
+    pipeline_write_env=PIPELINE_WRITE_ENV, table_name="<table>",
+    log_to_event_table=True, log_successes=True,
+)
+```
+GX expectations seen: `expect_column_values_to_not_be_null`, `expect_column_values_to_be_unique`,
+`expect_compound_columns_to_be_unique([...])`. Other `table_utils` functions named in this file
+(`add_prefix_to_columns`, `rename_columns_with_sap_business_header`, `transform_float_column`,
+`cast_columns_with_sap_business_headers`, `currency_conversion`, `create_table_view`) come from Confluence only:
+check their real signature before use.
 
 ---
 
@@ -141,8 +228,9 @@ Transform flow, in this order:
    rename and cast. SAP stores negatives as `525.00-`; a bare `.cast("double")` silently nulls them.
 4. **Cast** — `table_utils.cast_columns_with_sap_business_headers(df, df_header)`; use `try_cast` /
    `safe_to_date()` semantics, never a raw `.cast()` / `.to_date()` that can raise (STANDARD finding).
-5. **Leading zeros** — strip from all document/master-data identifiers (orders, materials, profit centers…)
-   before any join, **on both sides** of a planned join, or the join silently returns nothing.
+5. **Leading zeros** — `table_utils.remove_leading_zeros(df=..., column_names=[...])` on all document/master-data
+   identifiers (orders, materials, profit centers…) before any join, **on both sides** of a planned join, or the join
+   silently returns nothing.
 6. Booleans standardised to `True`/`False` (never Yes/No); dates are real date types, not strings.
 
 Reading:
@@ -183,7 +271,7 @@ table_utils.save_table(dest_table=f"{PIPELINE_WRITE_ENV}_silver.{domain}.{table}
                        df=df_silver, mode="overwrite", overwrite_schema=True)
 ```
 
-Then register NOT NULL + PK via `table_utils.set_table_column_not_null()` / `table_utils.add_table_primary_key()`.
+Then register NOT NULL + PK (`set_table_column_not_null` / `add_table_primary_key`, idempotent pattern in §3.4).
 **Never** call `.saveAsTable()` directly — always `table_utils.save_table()` (BLOCKER).
 
 ---
@@ -195,8 +283,9 @@ Gold = analytics-ready, business-facing table: enrichment, business calculations
 Flow: Setup (same as Silver) → Read → Business logic → Enrichment joins → Amount correction & currency
 conversion (only if monetary amounts) → PK → Quality Checks → Save (+ PK constraint + exposed view).
 
-- Read own Silver with `PIPELINE_WRITE_ENV`; reference/master Gold with `REFERENCE_READ_ENV`, pre-filtered
-  (e.g. language `spras == "E"`).
+- Read own Silver with `PIPELINE_WRITE_ENV` when the asset has one; reference/master Gold (`*_exposed`) and
+  Bronze `_latest` tables with `REFERENCE_READ_ENV`, pre-filtered (e.g. language `spras == "E"`). Some Gold assets
+  have no Silver at all and are assembled from other Gold tables (see §3.4).
 - Enrichment against another Gold table happens **in Gold, never in Silver**.
 - Business logic: calculated columns, `f.when(...).otherwise(...)` flags, `f.coalesce` fallbacks.
   Document the business meaning of each calculated column.
@@ -288,8 +377,14 @@ red_results = [
 gx_validation.validate_and_log_gx_results(
     quality_check_results=red_results, validation_level="RED",
     info_message="customer_orders_ID unique and not null", error_message="PK check failed",
+    pipeline_write_env=PIPELINE_WRITE_ENV, table_name="customer_orders",
+    log_to_event_table=True, log_successes=True,
 )
 ```
+
+In practice (reference notebook) the RED list holds the final-table PK checks **and** the uniqueness checks of every
+prepared reference table's join key, evaluated through GX datasets declared in the Prep blocks (join fan-out
+guard). `validation_level` is `"RED"`, or `"AMBER"` when the `by_pass_quality_checks` widget is true.
 
 Standard checks (unless the spec says otherwise):
 - **RED always:** PK unique; PK not null.
@@ -307,8 +402,8 @@ expectations before the PR.
 ## 8. Naming conventions
 
 **Tables** — understandable, no filler words ("basics", "all"); snake_case, no acronyms; follows
-object/sub-object/type; `_history` suffix goes at the **end**, never the middle; **no `_latest` suffix**
-(tables are latest by default); exposed view = `<table>_exposed`.
+object/sub-object/type; `_history` suffix goes at the **end**, never the middle; **no `_latest` suffix on
+tables you build** (tables are latest by default; Bronze ingestion tables do carry `_latest`, e.g. `afru_latest`); exposed view = `<table>_exposed`.
 
 **Columns** — snake_case with acronyms in UPPERCASE (`sales_doc_ID`, `PO_number`; not `SalesDocId`,
 `sales_doc_id`); English only; singular; booleans start with `is_`; date columns contain `_date`; technical
@@ -511,14 +606,15 @@ see Confluence chapter 16; not yet detailed here.
 ## 16. Working rules for Claude in this repo
 
 1. Before coding: identify the **layer** and the **closest sibling notebook**; read it; copy its structure.
-2. Start every notebook from `templates/` — full section order, `#N/A` for empty sections.
-3. Never invent a `leap_utils` signature. If unsure, search the repo for existing usage, or ask.
+2. Start every notebook from `templates/` and mirror `examples/gold/…` — full section order, `#N/A` for empty sections.
+   Do not copy the deviations listed in §3.4.
+3. Never invent a `leap_utils` signature. Use those in §3.5; for others search the repo for existing usage, or ask.
 4. Never hardcode environments; never use `print()`, `.union()`, bare `.cast()`, `.saveAsTable()`.
 5. No GX inline. One grouped `# Quality Checks` block with RED PK checks before Outputs.
 6. No `.select()`/`.drop()` in Silver. LEFT joins, deduped and pre-filtered references, fan-out guarded.
 7. Don't expand scope: add what the DAS/Test Definition asks for, nothing else. Don't add columns not in the spec.
 8. When writing DAS Excel files, use PowerShell COM, not Python.
 9. Open points (not defined yet — say "to be confirmed", don't decide silently): Input quality checks layout,
-   Gold historisation, rate-type-to-asset-type mapping, where to put logging, Self-service details.
+   PK/constraint naming of existing notebooks vs Confluence, exposed view for each Gold, Gold historisation, rate-type-to-asset-type mapping, where to put logging, Self-service details.
 10. Final answer after any change: list files touched, which checklist items were verified, and anything
     that could not be verified (no Databricks connection in this environment — notebooks can't be run here).

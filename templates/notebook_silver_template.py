@@ -1,34 +1,54 @@
 # Databricks notebook source
 # MAGIC %md
-# MAGIC # 1. SCRIPT OVERVIEW
-# MAGIC **Script:** `create_silver_<asset_name>.py` — Layer: Silver
+# MAGIC # SILVER <ASSET NAME IN CAPITALS>
 # MAGIC
-# MAGIC **Purpose:** <what this notebook does, business-wise>
+# MAGIC **Description:**
+# MAGIC <What this Silver table contains: cleansed / renamed / typed source, grain.>
 # MAGIC
-# MAGIC **Pipeline:** <job / data asset it belongs to>
+# MAGIC **Highlighted complexities:**
+# MAGIC <Special grain, SAP quirks, known traps.>
 # MAGIC
-# MAGIC **Inputs**
-# MAGIC - `{REFERENCE_READ_ENV}_bronze.sap_latecoere_ecc6.<table>`
-# MAGIC - `{REFERENCE_READ_ENV}_bronze.headers_sap.headers_sap_<table>`
+# MAGIC **Intended Pipeline**
+# MAGIC - <job / pipeline name>
 # MAGIC
-# MAGIC **Outputs**
-# MAGIC - `{PIPELINE_WRITE_ENV}_silver.<domain>.<table>`
+# MAGIC **Inputs Data**
+# MAGIC - {REFERENCE_READ_ENV}_bronze.sap_latecoere_ecc6.<table>_latest
+# MAGIC - {REFERENCE_READ_ENV}_bronze.headers_sap.headers_sap_<table>
+# MAGIC
+# MAGIC **Output Tables (Pipeline)**
+# MAGIC - {PIPELINE_WRITE_ENV}_silver.<domain>.<table>
 
 # COMMAND ----------
 
 # MAGIC %md
-# MAGIC # 2. TECHNICAL DEBT
+# MAGIC # Technical debt
 # MAGIC #N/A
 
 # COMMAND ----------
 
 # MAGIC %md
-# MAGIC # 3. CONFIGURATION
-# MAGIC ## 3.1 Imports
+# MAGIC # Configuration
 
 # COMMAND ----------
 
-import pyspark.sql.functions as f
+# MAGIC %md
+# MAGIC ## Config Standard Package Imports
+
+# COMMAND ----------
+
+import time
+
+from pyspark.sql import functions as f
+from pyspark.sql.utils import AnalysisException
+from pyspark.sql.window import Window
+
+# COMMAND ----------
+
+# MAGIC %md
+# MAGIC ## Config LEAP Function Imports
+
+# COMMAND ----------
+
 from leap_utils.data_asset import table_utils
 from leap_utils.common import logger
 from leap_utils.common.validation import gx_validation
@@ -37,152 +57,226 @@ from great_expectations.dataset import SparkDFDataset
 # COMMAND ----------
 
 # MAGIC %md
-# MAGIC ## 3.2 Widgets and environments
+# MAGIC ## Config Widgets
 
 # COMMAND ----------
 
 dbutils.widgets.removeAll()  # must be the first widget call
-dbutils.widgets.text("pipeline_write_env", "dev")
-dbutils.widgets.text("pipeline_read_env", "dev")
-dbutils.widgets.text("reference_read_env", "prod")
-dbutils.widgets.text("debug", "False")
-dbutils.widgets.dropdown("log_level", defaultValue="info",
-                         choices=["debug", "info", "warning", "error", "critical"])
 
+dbutils.widgets.text("pipeline_write_env", "dev")
 PIPELINE_WRITE_ENV = dbutils.widgets.get("pipeline_write_env")
+
+dbutils.widgets.text("pipeline_read_env", "dev")
 PIPELINE_READ_ENV = dbutils.widgets.get("pipeline_read_env")
+
+dbutils.widgets.text("reference_read_env", "prod")
 REFERENCE_READ_ENV = dbutils.widgets.get("reference_read_env")
 
-# COMMAND ----------
-
-# MAGIC %md
-# MAGIC ## 3.3 Logger
-
-# COMMAND ----------
-
-# TODO: configure `log` exactly as in the closest sibling notebook (leap_utils.common.logger)
-log = ...
+dbutils.widgets.text("by_pass_quality_checks", "false")
+BYPASS_QUALITY_CHECKS = dbutils.widgets.get("by_pass_quality_checks").lower() == "true"
 
 # COMMAND ----------
 
 # MAGIC %md
-# MAGIC # 4. INPUTS
-# MAGIC Each source table is read **once**, here only.
-# MAGIC ## 4.1 <table> (Bronze)
+# MAGIC ### Debug Boolean
 
 # COMMAND ----------
 
-table = "<table>"
-domain = "<domain>"
+dbutils.widgets.text("debug", "False")
+DEBUG = dbutils.widgets.get("debug").lower() == "true"
 
-df_source_raw = spark.read.table(f"{REFERENCE_READ_ENV}_bronze.sap_latecoere_ecc6.{table}")
-df_header = spark.read.table(f"{REFERENCE_READ_ENV}_bronze.headers_sap.headers_sap_{table}")
-
-# COMMAND ----------
-
-# MAGIC %md
-# MAGIC # 5. INPUT QUALITY CHECKS
-# MAGIC #N/A (TBD — freshness / completeness checks not yet standardised)
+dbutils.widgets.dropdown(
+    "log_level",
+    defaultValue="info",
+    choices=["debug", "info", "warning", "error", "critical"],
+)
+LOG_LEVEL = dbutils.widgets.get("log_level")
 
 # COMMAND ----------
 
 # MAGIC %md
-# MAGIC # 6. DATA PREPARATION
-# MAGIC ### 6.1 Prefix columns (before the SAP header rename, for later join disambiguation)
+# MAGIC ## Config logger
 
 # COMMAND ----------
 
-df = table_utils.add_prefix_to_columns(df_source_raw, "<SOURCE_PREFIX>")
-
-# COMMAND ----------
-
-# MAGIC %md
-# MAGIC ### 6.2 Rename with SAP business header
-
-# COMMAND ----------
-
-df = table_utils.rename_columns_with_sap_business_header(df, df_header)
+log = logger.setup_applevel_logger(log_level=logger.LOGGER_MAPPING[LOG_LEVEL])
 
 # COMMAND ----------
 
 # MAGIC %md
-# MAGIC ### 6.3 SAP trailing minus on every float/double column (between rename and cast)
-
-# COMMAND ----------
-
-# TODO: apply table_utils.transform_float_column() to every float/double column
+# MAGIC # Inputs
 
 # COMMAND ----------
 
 # MAGIC %md
-# MAGIC ### 6.4 Cast types (try_cast / safe_to_date semantics — never a raw cast)
+# MAGIC ## Import LEAP tables
+# MAGIC Each source table is read once, here only.
 
 # COMMAND ----------
 
-df = table_utils.cast_columns_with_sap_business_headers(df, df_header)
+TABLE = "<table>"
+DOMAIN = "<domain>"
+
+df_source_raw = spark.read.table(
+    f"{REFERENCE_READ_ENV}_bronze.sap_latecoere_ecc6.{TABLE}_latest"
+)
+df_header = spark.read.table(
+    f"{REFERENCE_READ_ENV}_bronze.headers_sap.headers_sap_{TABLE}"
+)
 
 # COMMAND ----------
 
 # MAGIC %md
-# MAGIC ### 6.5 Strip leading zeros from document / master-data identifiers
-
-# COMMAND ----------
-
-# TODO: strip leading zeros (both sides of any planned join)
+# MAGIC # Data Preparation
 
 # COMMAND ----------
 
 # MAGIC %md
-# MAGIC # 7. DATA TRANSFORMATIONS
+# MAGIC ##Prep1 - Prefix and SAP header rename
+# MAGIC Prefix first (join disambiguation), then technical SAP names -> business names.
+
+# COMMAND ----------
+
+df_prep = table_utils.add_prefix_to_columns(df_source_raw, "<SOURCE_PREFIX>")
+df_prep = table_utils.rename_columns_with_sap_business_header(df_prep, df_header)
+
+# COMMAND ----------
+
+# MAGIC %md
+# MAGIC ##Prep2 - SAP negative signs and type casting
+# MAGIC `transform_float_column` on EVERY float/double column, between rename and cast (SAP stores `525.00-`).
+
+# COMMAND ----------
+
+# TODO: table_utils.transform_float_column(...) on every float/double column
+df_prep = table_utils.cast_columns_with_sap_business_headers(df_prep, df_header)
+
+# COMMAND ----------
+
+# MAGIC %md
+# MAGIC ##Prep3 - Leading zeros
+# MAGIC Strip from every document / master-data identifier, on both sides of any future join.
+
+# COMMAND ----------
+
+df_prep = table_utils.remove_leading_zeros(
+    df=df_prep,
+    column_names=["<identifier_1>", "<identifier_2>"],
+)
+
+# COMMAND ----------
+
+# MAGIC %md
+# MAGIC # Data Transformations
 # MAGIC Silver keeps every source column: no `.select()` / `.drop()`.
-# MAGIC ### 7.1 Primary key
-
-# COMMAND ----------
-
-# Composite key example — {table}_ID, first column. Skip if a natural column is already unique.
-pk_col = f"{table}_ID"
-df = df.withColumn(pk_col, f.concat_ws("-", f.col("<col1>"), f.col("<col2>")))
-columns = df.columns
-columns.remove(pk_col)
-df_silver = df.select([pk_col] + columns)
 
 # COMMAND ----------
 
 # MAGIC %md
-# MAGIC # 8. QUALITY CHECKS
-# MAGIC All checks grouped here, none inline. RED = halt, AMBER = warn.
+# MAGIC ## Tr. 1 - Create ID column and put it first
+# MAGIC Composite key `{table}_ID`; skip if a natural column is already unique.
 
 # COMMAND ----------
 
-dfgx = SparkDFDataset(df_silver, persist=False)
+PK_COL = f"{TABLE}_ID"
 
-amber_results = [
-    # dfgx.expect_column_values_to_not_be_null(column="<key_dimension>"),
-]
-gx_validation.validate_and_log_gx_results(
-    quality_check_results=amber_results, validation_level="AMBER",
-    info_message="<what is expected>", error_message="<what to look at>",
+df_transf = df_prep.withColumn(
+    PK_COL, f.concat_ws("-", f.col("<key_1>"), f.col("<key_2>"))
 )
-
-red_results = [
-    dfgx.expect_column_values_to_not_be_null(column=pk_col),
-    dfgx.expect_column_values_to_be_unique(column=pk_col),
-]
-gx_validation.validate_and_log_gx_results(
-    quality_check_results=red_results, validation_level="RED",
-    info_message=f"{pk_col} unique and not null", error_message="PK check failed",
+df_transf = df_transf.select(
+    [PK_COL] + [c for c in df_transf.columns if c != PK_COL]
 )
 
 # COMMAND ----------
 
 # MAGIC %md
-# MAGIC # 9. OUTPUTS
-# MAGIC ## 9.1 Save table + PK constraint
+# MAGIC # Quality Checks
+# MAGIC Every check is grouped here. RED stops the job, AMBER only warns.
 
 # COMMAND ----------
 
-table_utils.save_table(dest_table=f"{PIPELINE_WRITE_ENV}_silver.{domain}.{table}",
-                       df=df_silver, mode="overwrite", overwrite_schema=True)
+validation_level = "AMBER" if BYPASS_QUALITY_CHECKS else "RED"
 
-# TODO: table_utils.set_table_column_not_null(...) then table_utils.add_table_primary_key(...)
-#       constraint name: silver_{table}_PK
+df_gx_final = SparkDFDataset(df_transf, persist=False)
+red_quality_check_results = [
+    df_gx_final.expect_column_values_to_not_be_null(column=PK_COL),
+    df_gx_final.expect_column_values_to_be_unique(column=PK_COL),
+]
+gx_validation.validate_and_log_gx_results(
+    quality_check_results=red_quality_check_results,
+    validation_level=validation_level,
+    info_message="All checks inspection",
+    error_message=f"Quality checks failed for {TABLE} table, please check log messages",
+    pipeline_write_env=PIPELINE_WRITE_ENV,
+    table_name=TABLE,
+    log_to_event_table=True,
+    log_successes=True,
+)
+
+# COMMAND ----------
+
+# AMBER checks (key dimensions not null, low fill rates with mostly=...)
+# amber_results = [df_gx_final.expect_column_values_to_not_be_null(column="<dimension>")]
+
+# COMMAND ----------
+
+# MAGIC %md
+# MAGIC # Outputs
+
+# COMMAND ----------
+
+CATALOG = f"{PIPELINE_WRITE_ENV}_silver"
+SCHEMA = DOMAIN
+DESTINATION_TABLE = TABLE
+DESTINATION_TABLE_FULL_PATH = f"{CATALOG}.{SCHEMA}.{DESTINATION_TABLE}"
+
+# COMMAND ----------
+
+spark.sql(f"CREATE DATABASE IF NOT EXISTS {CATALOG}.{SCHEMA}")
+
+try:
+    startTime = time.time()
+    result = table_utils.save_table(
+        dest_table=DESTINATION_TABLE_FULL_PATH,
+        df=df_transf,
+        mode="overwrite",
+        overwrite_schema=True,
+    )
+except AnalysisException as e:
+    log.error(
+        f"Table {DESTINATION_TABLE_FULL_PATH} has not been created, an error occured during saveAsTable. \nError is {e}"
+    )
+    raise
+else:
+    duration = time.time() - startTime
+    log.info(f"Table {DESTINATION_TABLE_FULL_PATH} saved in {duration} seconds.")
+    if result is not None:
+        result.display()
+
+# COMMAND ----------
+
+# MAGIC %md
+# MAGIC ## Primary key constraint (idempotent)
+
+# COMMAND ----------
+
+TABLE_CONSTRAINT_NAME = f"silver_{DESTINATION_TABLE}_PK"
+TABLE_PK_COLS = PK_COL  # comma-separated if several
+
+nb_cons = spark.sql(
+    f"select count(*) from system.information_SCHEMA.table_constraints "
+    f"where table_CATALOG='{CATALOG}' and table_SCHEMA='{SCHEMA}' "
+    f"and table_name='{DESTINATION_TABLE}' and constraint_name='{TABLE_CONSTRAINT_NAME}'"
+).first()[0]
+
+if nb_cons == 0:
+    # Columns must be NOT NULL before adding a primary key
+    for col in TABLE_PK_COLS.split(","):
+        table_utils.set_table_column_not_null(
+            table_path=DESTINATION_TABLE_FULL_PATH, column=col.strip()
+        )
+    table_utils.add_table_primary_key(
+        table_path=DESTINATION_TABLE_FULL_PATH,
+        pk_name=TABLE_CONSTRAINT_NAME,
+        columns=TABLE_PK_COLS,
+    )

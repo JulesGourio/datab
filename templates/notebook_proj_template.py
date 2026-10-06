@@ -1,15 +1,21 @@
 # Databricks notebook source
 # MAGIC %md
-# MAGIC # 1. SCRIPT OVERVIEW
-# MAGIC **Script:** `create_proj_<asset_name>.py` — Layer: Proj (use case UC<number>)
+# MAGIC # PROJ <USE CASE / ASSET NAME IN CAPITALS>
 # MAGIC
-# MAGIC **Purpose:** <KPIs / flags pre-computed for the PowerBI report>
+# MAGIC **Description:**
+# MAGIC <KPIs / flags / aggregations pre-computed for the use case and the PowerBI report.>
 # MAGIC
-# MAGIC **Inputs** (Gold only, via PIPELINE_WRITE_ENV)
-# MAGIC - `{PIPELINE_WRITE_ENV}_gold.<domain>.<table>`
+# MAGIC **Highlighted complexities:**
+# MAGIC <Scope rules specific to the use case.>
 # MAGIC
-# MAGIC **Outputs**
-# MAGIC - `{PIPELINE_WRITE_ENV}_proj.<domain>.uc<number>_<table_name>`
+# MAGIC **Intended Pipeline**
+# MAGIC - <job / pipeline name> (task runs after the Gold it reads)
+# MAGIC
+# MAGIC **Inputs Data** (Gold only, via PIPELINE_WRITE_ENV)
+# MAGIC - {PIPELINE_WRITE_ENV}_gold.<domain>.<table>
+# MAGIC
+# MAGIC **Output Tables (Pipeline)**
+# MAGIC - {PIPELINE_WRITE_ENV}_proj.<domain>.uc<number>_<table_name>
 # MAGIC
 # MAGIC **Calculated columns (business meaning)**
 # MAGIC - `is_<flag>`: <meaning>
@@ -18,99 +24,190 @@
 # COMMAND ----------
 
 # MAGIC %md
-# MAGIC # 2. TECHNICAL DEBT
+# MAGIC # Technical debt
 # MAGIC #N/A
 
 # COMMAND ----------
 
 # MAGIC %md
-# MAGIC # 3. CONFIGURATION
-# MAGIC Same imports / widgets / logger as the Silver template.
+# MAGIC # Configuration
 
 # COMMAND ----------
 
-import pyspark.sql.functions as f
+# MAGIC %md
+# MAGIC ## Config Standard Package Imports
+
+# COMMAND ----------
+
+import time
+
+from pyspark.sql import functions as f
+from pyspark.sql.utils import AnalysisException
+from pyspark.sql.window import Window
+
+# COMMAND ----------
+
+# MAGIC %md
+# MAGIC ## Config LEAP Function Imports
+
+# COMMAND ----------
+
 from leap_utils.data_asset import table_utils
 from leap_utils.common import logger
 from leap_utils.common.validation import gx_validation
 from great_expectations.dataset import SparkDFDataset
 
-dbutils.widgets.removeAll()
-dbutils.widgets.text("pipeline_write_env", "dev")
-dbutils.widgets.text("pipeline_read_env", "dev")
-dbutils.widgets.text("reference_read_env", "prod")
-dbutils.widgets.text("debug", "False")
-dbutils.widgets.dropdown("log_level", defaultValue="info",
-                         choices=["debug", "info", "warning", "error", "critical"])
+# COMMAND ----------
 
+# MAGIC %md
+# MAGIC ## Config Widgets
+
+# COMMAND ----------
+
+dbutils.widgets.removeAll()  # must be the first widget call
+
+dbutils.widgets.text("pipeline_write_env", "dev")
 PIPELINE_WRITE_ENV = dbutils.widgets.get("pipeline_write_env")
+
+dbutils.widgets.text("pipeline_read_env", "dev")
 PIPELINE_READ_ENV = dbutils.widgets.get("pipeline_read_env")
+
+dbutils.widgets.text("reference_read_env", "prod")
 REFERENCE_READ_ENV = dbutils.widgets.get("reference_read_env")
 
-# TODO: configure `log` as in the closest sibling notebook
-log = ...
+dbutils.widgets.text("by_pass_quality_checks", "false")
+BYPASS_QUALITY_CHECKS = dbutils.widgets.get("by_pass_quality_checks").lower() == "true"
 
 # COMMAND ----------
 
 # MAGIC %md
-# MAGIC # 4. INPUTS
-# MAGIC ## 4.1 Gold table — never Silver or Bronze
+# MAGIC ### Debug Boolean
 
 # COMMAND ----------
 
-domain = "<domain>"
-df_gold = spark.read.table(f"{PIPELINE_WRITE_ENV}_gold.{domain}.<table>")
+dbutils.widgets.text("debug", "False")
+DEBUG = dbutils.widgets.get("debug").lower() == "true"
 
-# COMMAND ----------
-
-# MAGIC %md
-# MAGIC # 5. INPUT QUALITY CHECKS
-# MAGIC #N/A
-
-# COMMAND ----------
-
-# MAGIC %md
-# MAGIC # 6. DATA PREPARATION
-# MAGIC ### 6.1 Use-case scope filter
-
-# COMMAND ----------
-
-df_scope = df_gold  # TODO: .filter(...) inclusion lists specific to the use case
+dbutils.widgets.dropdown(
+    "log_level",
+    defaultValue="info",
+    choices=["debug", "info", "warning", "error", "critical"],
+)
+LOG_LEVEL = dbutils.widgets.get("log_level")
 
 # COMMAND ----------
 
 # MAGIC %md
-# MAGIC # 7. DATA TRANSFORMATIONS
-# MAGIC ### 7.1 Flags and weighted numerators (integer-cast for summable KPIs)
+# MAGIC ## Config logger
 
 # COMMAND ----------
 
-df_proj = df_scope  # TODO: flags, weighted numerators, optional coarser aggregation
+log = logger.setup_applevel_logger(log_level=logger.LOGGER_MAPPING[LOG_LEVEL])
 
 # COMMAND ----------
 
 # MAGIC %md
-# MAGIC # 8. QUALITY CHECKS
+# MAGIC # Inputs
 
 # COMMAND ----------
 
-pk_col = "<pk_column>"
-dfgx = SparkDFDataset(df_proj, persist=False)
-red_results = [
-    dfgx.expect_column_values_to_not_be_null(column=pk_col),
-    dfgx.expect_column_values_to_be_unique(column=pk_col),
+# MAGIC %md
+# MAGIC ## Import LEAP tables
+# MAGIC ### Gold tables - never Silver or Bronze
+
+# COMMAND ----------
+
+DOMAIN = "<domain>"
+
+df_gold_raw = spark.read.table(f"{PIPELINE_WRITE_ENV}_gold.{DOMAIN}.<table>")
+
+# COMMAND ----------
+
+# MAGIC %md
+# MAGIC # Data Preparation
+
+# COMMAND ----------
+
+# MAGIC %md
+# MAGIC ##Prep1 - Use-case scope filter
+# MAGIC <Inclusion lists of order types / statuses specific to the use case.>
+
+# COMMAND ----------
+
+df_scope = df_gold_raw  # TODO: .filter(...)
+
+# COMMAND ----------
+
+# MAGIC %md
+# MAGIC # Data Transformations
+
+# COMMAND ----------
+
+# MAGIC %md
+# MAGIC ## Tr. 1 - Flags and weighted numerators
+# MAGIC Booleans pre-computed for PBI slicers; integer-cast flags so KPIs are summable.
+
+# COMMAND ----------
+
+df_transf = df_scope  # TODO: f.when(...) flags, weighted numerators, optional coarser aggregation
+
+# COMMAND ----------
+
+# MAGIC %md
+# MAGIC # Quality Checks
+
+# COMMAND ----------
+
+PK_COL = "<pk_column>"
+validation_level = "AMBER" if BYPASS_QUALITY_CHECKS else "RED"
+
+df_gx_final = SparkDFDataset(df_transf, persist=False)
+red_quality_check_results = [
+    df_gx_final.expect_column_values_to_not_be_null(column=PK_COL),
+    df_gx_final.expect_column_values_to_be_unique(column=PK_COL),
 ]
 gx_validation.validate_and_log_gx_results(
-    quality_check_results=red_results, validation_level="RED",
-    info_message=f"{pk_col} unique and not null", error_message="PK check failed",
+    quality_check_results=red_quality_check_results,
+    validation_level=validation_level,
+    info_message="All checks inspection",
+    error_message="Quality checks failed for <table> table, please check log messages",
+    pipeline_write_env=PIPELINE_WRITE_ENV,
+    table_name="uc<number>_<table_name>",
+    log_to_event_table=True,
+    log_successes=True,
 )
 
 # COMMAND ----------
 
 # MAGIC %md
-# MAGIC # 9. OUTPUTS
+# MAGIC # Outputs
 
 # COMMAND ----------
 
-table_utils.save_table(dest_table=f"{PIPELINE_WRITE_ENV}_proj.{domain}.uc<number>_<table_name>",
-                       df=df_proj, mode="overwrite", overwrite_schema=True)
+CATALOG = f"{PIPELINE_WRITE_ENV}_proj"
+SCHEMA = DOMAIN
+DESTINATION_TABLE = "uc<number>_<table_name>"
+DESTINATION_TABLE_FULL_PATH = f"{CATALOG}.{SCHEMA}.{DESTINATION_TABLE}"
+
+# COMMAND ----------
+
+spark.sql(f"CREATE DATABASE IF NOT EXISTS {CATALOG}.{SCHEMA}")
+
+try:
+    startTime = time.time()
+    result = table_utils.save_table(
+        dest_table=DESTINATION_TABLE_FULL_PATH,
+        df=df_transf,
+        mode="overwrite",
+        overwrite_schema=True,
+    )
+except AnalysisException as e:
+    log.error(
+        f"Table {DESTINATION_TABLE_FULL_PATH} has not been created, an error occured during saveAsTable. \nError is {e}"
+    )
+    raise
+else:
+    duration = time.time() - startTime
+    log.info(f"Table {DESTINATION_TABLE_FULL_PATH} saved in {duration} seconds.")
+    if result is not None:
+        result.display()
