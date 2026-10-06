@@ -153,6 +153,80 @@ F12. Dans afpo_stack (dernière extraction) : la colonne plnum existe-t-elle, et
 
 Après F1–F12 : blocs 4 à 6 (R, W, M, D, E). R5 et R10 se font désormais sur `resb_stack` plutôt que `resb_latest`.
 
+### 1.10 Lot 3 — après le lot 2 (G1–G10 + questions non traitées)
+
+Bloc complet à coller dans une nouvelle conversation Genie :
+
+```
+Règles pour toute cette conversation :
+- Réponds uniquement avec : (1) la requête SQL que tu as réellement exécutée, avec les noms complets catalog.schema.table, (2) le résultat brut en tableau, (3) une phrase de constat factuel.
+- Pas de code PySpark, pas de proposition de notebook, d'architecture ou de méthode.
+- Si une table ou une colonne n'existe pas, dis-le explicitement, ne la remplace pas par une autre.
+- Si un résultat est tronqué, donne le nombre total de lignes.
+- Utilise toujours try_cast (jamais CAST) pour convertir les champs texte SAP ; le signe moins SAP est en fin de chaîne ("1.000-").
+- Les numéros d'ordre (aufnr, plnum) et d'article sont avec zéros en tête dans les stacks et sans zéros dans les tables Gold : retire les zéros des deux côtés avant de joindre.
+- Toutes les tables stack sont dans prod_landingzone.sap_latecoere_ecc6 et partitionnées par extraction_timestamp : filtre toujours sur des extraction_timestamp précis.
+- Numérote tes réponses comme mes questions. Traite-les toutes, dans l'ordre ; si tu ne peux pas en traiter une, dis pourquoi.
+
+=== G. Nouvelles questions ===
+
+G1. Anomalie RESB. Pour la dernière extraction de chaque mois de resb_stack depuis 2023-09 : date d'extraction, nombre de lignes bdart IN ('AR','SB'), et parmi elles la part (%) avec xloek = 'X', la part avec kzear = 'X', la part avec try_cast(enmng AS DOUBLE) > 0. Ensuite, pour 5 couples (rsnum, rspos) présents à la fois dans l'extraction du 2025-03-31 et dans celle du 2026-10-05, affiche côte à côte pour les deux dates : aufnr, plnum, matnr, bdmng, enmng, xloek, kzear, bdter. Enfin, DESCRIBE HISTORY de resb_stack : y a-t-il eu un changement de schéma (opérations CHANGE COLUMN, ADD COLUMNS, ou COPY INTO avec mergeSchema) entre 2024-10 et 2025-04 ?
+
+G2. Horizon des besoins ouverts. Sur la dernière extraction de resb_stack, pour les lignes bdart IN ('AR','SB'), coalesce(xloek,'') <> 'X', coalesce(kzear,'') <> 'X', try_cast(enmng AS DOUBLE) = 0 : nombre de lignes par bdart et par tranche de bdter par rapport à la date d'extraction (déjà passé, 0-3 mois, 3-6 mois, 6-13 mois, 13-24 mois, plus de 24 mois).
+
+G3. Quantités sans rebut dans RESB. Sur la dernière extraction de resb_stack, donne 10 lignes AR avec try_cast(ausch AS DOUBLE) > 0 et 10 lignes AR avec ausch = 0, avec : aufnr, matnr, bdmng, nomng, esmng, erfmg (si présent), ausch, meins, et la quantité de l'ordre afko.gamng (même date d'extraction dans afko_stack) ainsi que menge et bmeng du poste BOM (stpo_stack / stko_stack, dernière extraction, jointure sur stlty, stlnr, stlkn et stlal de l'ordre). Calcule pour chaque ligne bdmng / (1 + ausch/100) pour comparer à nomng et esmng.
+
+G4. Rebut d'ensemble au niveau de l'ordre. Liste les colonnes de plaf_stack et afko_stack liées au rebut (par exemple gasmg, ausss, avmng ou toute colonne contenant "aus" ou "rebut"). Pour 5 ordres de fabrication dont l'article fabriqué a marc.ausss > 0 (marc_latest, même usine) : gamng, gasmg (ou équivalent), ausss de l'article, et pour un composant de l'ordre : bdmng (resb_stack) comparé à menge / bmeng × gamng.
+
+G5. Unité des mouvements. Dans prod_gold.supply_chain_logistic.part_movement_exposed : existe-t-il une colonne de quantité en unité de base (en plus de Quantity / Unit) ? Sur les mouvements 261/262 des 12 derniers mois, part des mouvements où Unit est différent de material_base_unit de prod_gold.master_data.material_plant (même article et usine). Existe-t-il une table Gold de conversion d'unités (équivalent MARM) ? Nom complet et colonnes.
+
+G6. Mouvements 531/532 imputés à un Work_order : 5 exemples avec Work_order, Material_number, description de l'article, Quantity, Unit et material_number de l'ordre (work_orders_sap_exposed). S'agit-il de composants, de l'article fabriqué ou d'un sous-produit ?
+
+G7. Mouvements sur l'article fabriqué : parmi les mouvements avec Work_order renseigné sur 12 mois, combien portent sur le material_number de l'ordre lui-même (prod_gold.production.work_orders_sap_exposed, après retrait des zéros) ? Répartition par Movement_type.
+
+G8. Types d'ordre de fabrication : existe-t-il une table de textes des types d'ordre (T003P ou équivalent) en bronze ou en gold ? Donne la description de ZP01, ZP03, ZP04, ZP05, ZP09, YP04 et des autres types présents dans work_orders_sap_exposed, avec leur nombre d'ordres sur les 12 derniers mois.
+
+G9. Lineage de prod_gold.production.work_orders_sap_exposed : chemin du notebook qui la produit, et champ SAP exact derrière real_start_date et real_end_date (gstri, getri, gltri ?). Pour 10 ordres fermés en 2026, affiche afko gstri, getri, gltri (dernière extraction afko_stack) à côté de real_start_date et real_end_date.
+
+G10. Stacks MARC et MARM : pour les 10 dernières extractions FULL et les 10 dernières DELTA de marc_stack et de marm_stack, date et nombre de lignes. Une extraction FULL contient-elle bien toutes les usines et tous les articles (comparer le nombre de lignes au marc_latest / marm_latest) ?
+
+=== Questions du lot précédent non traitées ===
+
+F4d. Combien d'articles avec sobsl = '50' dans marc_latest apparaissent comme composant (idnrk, zéros retirés) dans stpo_stack (stlty = 'M', dernière extraction), dans une BOM de la même usine (via mast_latest) ?
+
+F4f. Donne un ordre de fabrication de la dernière extraction de resb_stack qui a une ligne dumps = 'X'. Affiche toutes ses lignes resb_stack de cette extraction avec rspos, posnr, matnr, dumps, baugr, bdmng, meins.
+
+F8. Existe-t-il une table de textes des catégories de poste de nomenclature (T418T ou équivalent) en bronze ou en gold ? Pour chaque postp (Z, 0, 1, 2, 4, U, V, D, N) de stpo_stack (stlty = 'M', dernière extraction), 3 exemples de idnrk avec leur description (prod_gold.master_data.material_exposed). Les composants des postes Z et 0 apparaissent-ils dans prod_gold.supply_chain_logistic.part_movement_exposed avec un Work_order (nombre de mouvements sur 12 mois) ?
+
+F9. Parmi les postes stpo_stack (stlty = 'M', dernière extraction) dont meins diffère de l'unité de base de l'article composant (mara_latest.meins) et sans conversion dans marm_latest (matnr = idnrk, meinh = meins) : top 20 des couples (unité STPO, unité de base) avec leur nombre. Vérifie que idnrk et matnr ont été comparés après retrait des zéros et trim.
+
+F10. Job W_3_SAP_AS_Design_BOM_DataAsset (job ID 1007135342276807) : chemin de ses notebooks et liste de toutes les tables qu'il écrit (silver et gold). Pourquoi prod_silver.production.bom a 3,2 M lignes alors que stpo_stack stlty = 'M' en a 4,7 M : quels filtres (datuv, postp, validité STAS, lkenz STAS) ? La table contient-elle à la fois l'ancien et le nouveau nœud d'un poste modifié (stlkn et vgknt du même stlnr) ?
+
+R5. Prends un ordre de fabrication terminé il y a environ 6 mois (real_end_date dans work_orders_sap_exposed), issu d'un ordre planifié (planned_order_link renseigné). Dans resb_stack : les lignes de l'ordre planifié (plnum) à la dernière extraction avant la création de l'OF, puis les lignes de l'OF (aufnr) à 3 extractions espacées entre sa création et sa fin, avec rspos, matnr, bdmng, enmng, kzear, xloek, dumps.
+
+R9. Dans la dernière extraction de plaf_stack : nombre d'ordres planifiés par plwrk et par tranche de psttr par rapport à la date d'extraction (passé, 0-3 mois, 3-6 mois, 6-12 mois, plus de 12 mois).
+
+R10. Dans resb_stack, sur les 30 dernières extractions : nombre moyen de valeurs distinctes par (rsnum, rspos, rsart) de la combinaison (bdmng, matnr, bdter, ausch, xloek), en ignorant enmng, kzear et les colonnes techniques.
+
+R11. Pour 20 ordres de fabrication dont aucune ligne resb n'a stlnr vide : compare bdmng à menge / bmeng × gamng × (1 + ausch/100), avec les lignes stpo_stack et stko_stack (stlty = 'M') de la date d'extraction la plus proche avant la création de l'ordre, et l'alternative afko.stlal de l'ordre. Donne l'écart par ligne et l'écart moyen.
+
+M3. Fait partie de G7.
+
+D2. Quelles tables Gold donnent la description des divisions (plant) et des centres de profit ? Noms complets et colonnes.
+
+D3. Quelle table Gold donne le prix des composants en EUR ? Avec quelle date de validité (prix courant ou historisé) ?
+
+D4. Existe-t-il une colonne ou une notion "PF usage" dans les tables Gold ? Où ?
+
+E1. Donne un article fabriqué dont un poste de BOM a changé (menge ou ausch) entre avril 2025 et avril 2026 dans stpo_stack, avec la date d'extraction du changement et les valeurs avant et après.
+
+E2. Donne un ordre de fabrication terminé en 2026, issu d'un ordre planifié (planned_order_link renseigné), dont un composant a marc.sobsl = '50' (fantôme). Donne son numéro, son ordre planifié, ses lignes resb_stack de la dernière extraction avant sa fin, et ses mouvements dans part_movement_exposed.
+
+E3. Donne un ordre de fabrication terminé avec au moins un composant consommé (part_movement_exposed) absent de ses réservations (resb_stack), et au moins un composant réservé jamais consommé.
+
+E4. Donne un article fabriqué avec plusieurs alternatives de BOM et des ordres de fabrication sur au moins deux alternatives différentes (afko_stack.stlal).
+```
+
 ---
 
 ## 2. Tests des sorties (lab : `dev_lab.lab_jules`)

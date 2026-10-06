@@ -2,7 +2,7 @@
 
 | | |
 |---|---|
-| Statut | **DRAFT v2** (2026-10-06, après la découverte Genie, §13) — à valider en kick-off (DAS + Test Definition pas encore écrits) |
+| Statut | **DRAFT v3** (2026-10-06, après les lots de découverte Genie 1 et 2, §13) — à valider en kick-off (DAS + Test Definition pas encore écrits) |
 | Remplace | « Spec technique v2 — Historisation BOM IS » générée par Databricks Genie (revue critique au §2) |
 | Couches | Gold (2 tables historisées) + Proj (calcul de fiabilité) |
 | Tests | Toutes les sorties en **`dev_lab.lab_jules`** pendant les tests (CLAUDE.md §0.1) |
@@ -395,7 +395,6 @@ Clé : (`BOM_number`, `BOM_alternative`, `BOM_node`, `BOM_allocation_counter`).
 | `ausch` | `component_scrap_percentage` | double | ⭐ rebut composant (20 = +20 %) |
 | `avoau` | `operation_scrap_percentage` | double | rebut opération |
 | `netau` | `is_net_scrap` | boolean | rebut d'ensemble ignoré si `X` |
-| `sobsl` | `item_special_procurement_type` | string | ⭐ `50` = fantôme au niveau du poste [À VÉRIFIER F4] — `dumps` n'existe pas dans STPO (B11) |
 | `schgt` | `is_bulk_material` | boolean | vrac (pas de sortie sur OF) |
 | `alpos`, `alpgr`, `ewahr` | `is_alternative_item`, `alternative_item_group`, `usage_probability` | bool/string/double | postes alternatifs |
 | `lgort` | `issue_storage_location` | string | |
@@ -431,10 +430,13 @@ Clé : (`material_number`, `plant`, `BOM_usage`, `BOM_number`, `BOM_alternative`
 
 #### Prep6 — MARC historisé (`marc_stack`) : fantôme et rebuts au niveau article × usine
 
-Les BOM ne portent presque pas de rebut (`ausch > 0` sur 1 859 postes sur 4,7 M, `avoau` sur 5 : B10). Le « +20 % »
-du métier est donc ailleurs : très probablement `MARC.KAUSF` (rebut composant de l'article, utilisé par SAP quand le
-poste n'a pas d'`ausch`) et `MARC.AUSSS` (rebut d'ensemble de l'AF) [À VÉRIFIER F5]. Et le fantôme se déclare
-surtout par `MARC.SOBSL = '50'` du composant. `marc_stack` existe depuis 2022-11 : on l'historise comme le reste.
+Les BOM portent peu de rebut composant (`ausch > 0` sur 1 859 postes, B10) et `KAUSF` n'est renseigné que pour
+350 articles. Le rebut massivement utilisé est le **rebut d'ensemble `MARC.AUSSS` de l'AF : 32 196 articles**
+(10 % ×12 420, 5 % ×7 811, 1 % ×7 191 — F5). Le fantôme n'existe **que** via `MARC.SOBSL = '50'` du composant
+(~17 269 articles, F4) : `sobsl` et `dumps` n'existent pas dans `stpo_stack`.
+
+`marc_stack` contient des extractions **FULL** (592 dates) **et DELTA** (44 dates) (F1) : une extraction DELTA n'est pas
+un snapshot. On ne lit que `file_mode = 'FULL'`, puis alignement as-of sur les dates STPO.
 
 | SAP | Colonne cible | Rôle |
 |---|---|---|
@@ -447,12 +449,11 @@ Compression en intervalles (§5.6), puis **deux** jointures par intersection d'i
 composant (`component_material_number`, `plant`) → `component_special_procurement_type`,
 `material_component_scrap_percentage` ; côté AF (`material_number`, `plant`) → `assembly_scrap_percentage`. LEFT
 (un composant sans MARC dans l'usine reste dans la BOM). Colonne dérivée :
-`is_phantom_item = item_special_procurement_type == '50' OR component_special_procurement_type == '50'`
-[règle à confirmer avec F4]. Table de MARM : idem, `marm_stack` pour cohérence temporelle (ou `marm_latest` si la
-conversion ne change jamais — dette technique).
+`is_phantom_item = component_special_procurement_type == '50'`.
 
 #### Prep5 — conversion d'unité (MARM, `marm_stack` aligné sur les dates STPO)
 
+`marm_stack` : 184 extractions FULL et 500 DELTA (F1) → **FULL uniquement**, alignées as-of sur les dates STPO.
 `material_number`, `alternative_unit` (`MEINH`), `numerator` (`UMREZ`), `denominator` (`UMREN`) ; unité de base du
 composant depuis `material_exposed` (`MARA.MEINS`). Dédoublonnage sur (`material_number`, `alternative_unit`) + RED
 d'unicité. Facteur : `quantité_base = quantité × UMREZ / UMREN` quand `component_unit ≠ base_unit`.
@@ -580,7 +581,7 @@ Schéma de sortie (ordre des colonnes) : `bom_item_history_ID`, `plant`, `materi
 `BOM_item_number`, `BOM_item_category`, `component_material_number`, `component_quantity`, `component_unit`,
 `component_quantity_in_base_unit`, `component_base_unit`, `BOM_base_quantity`, `BOM_base_unit`,
 `component_scrap_percentage`, `material_component_scrap_percentage`, `assembly_scrap_percentage`,
-`operation_scrap_percentage`, `is_net_scrap`, `is_fixed_quantity`, `item_special_procurement_type`,
+`operation_scrap_percentage`, `is_net_scrap`, `is_fixed_quantity`,
 `component_special_procurement_type`, `is_phantom_item`, `is_bulk_material`, `is_alternative_item`, `alternative_item_group`, `usage_probability`, `issue_storage_location`,
 `BOM_status`, `is_header_locked`, `header_valid_from_date`, `is_header_deleted`, `header_change_number`,
 `allocation_valid_from_date`, `is_allocation_deleted`, `item_valid_from_date`, `is_item_deleted`,
@@ -675,8 +676,20 @@ Lire 787 extractions RESB de ~75 M lignes n'a aucun intérêt : T0 est au mieux 
 
 ### 6.3 Prep
 
-**Prep1 — RESB (besoins)**. Filtre « besoin ouvert » appliqué **dès la lecture** (c'est lui qui ramène ~75 M lignes à
-quelques millions [À VÉRIFIER F2]) : `bdart IN ('AR', 'SB')`, `xloek <> 'X'`, `kzear <> 'X'`, `enmng = 0`.
+**Prep1 — RESB (besoins)**. Profil (F2, R1) : extraction **hebdomadaire de 2023-09 à 2024-09, quotidienne depuis
+2024-10** ; dernière extraction 79,5 M lignes (SB 37,4 M avec `plnum`, AR 36,7 M avec `aufnr`, BB 4,9 M et MR 218 k
+sans ordre) ; clé (`rsnum`, `rspos`, `rsart`) unique ; `prod_gold.mrp.reservation_mrp_sap` est le miroir de la
+dernière extraction (pas d'historique).
+
+Filtre « besoin ouvert » appliqué **dès la lecture** : `bdart IN ('AR', 'SB')`, `coalesce(xloek,'') <> 'X'`,
+`coalesce(kzear,'') <> 'X'`, `try_cast(enmng) = 0` → 38,6 M lignes sur la dernière extraction, 26,1 M en 2024-09.
+Ajouter un **filtre d'horizon** `requirement_date <= snapshot_date + MAX_HORIZON_MONTHS` (13 mois couvre P1 + P2 ≤ 12)
+[volume à mesurer, G2] : les OP à plusieurs années ne servent à aucune période.
+
+⚠️ **Anomalie à résoudre avant le build (G1)** : sur l'extraction du 2025-03-31, 38,7 M des 39,7 M lignes AR/SB ont
+`xloek = 'X'` et le reste `kzear = 'X'` → le filtre donne 0 ligne. Soit des extractions corrompues (colonnes décalées),
+soit un vrai changement. Garde-fou dans tous les cas : contrôle par snapshot de la part de lignes ouvertes ; un snapshot
+anormal est **exclu** des dates retenues (log + AMBER), la semaine prend l'extraction valide précédente.
 Justification : à T0, un OF qui démarrera après T1 n'a encore rien prélevé ; les réservations soldées ou historiques ne
 sont pas une prévision. Conséquence assumée : quand un OF commence à prélever, ses lignes sortent du filtre et la
 version est fermée — sans effet, puisqu'on ne lit B qu'à des dates T0 antérieures au démarrage.
@@ -694,8 +707,8 @@ version est fermée — sans effet, puisqu'on ne lit B qu'à des dates T0 antér
 | `bdter` | `requirement_date` | date | |
 | `ausch` | `component_scrap_percentage` | double | |
 | `avoau` | `operation_scrap_percentage` | double | quasi inutilisé dans les BOM (B10) |
-| `netau` | `is_net_scrap` | boolean | |
-| `dumps` | `is_phantom_item` | boolean | ligne du fantôme lui-même [À VÉRIFIER F4 : présence dans RESB] |
+| `dumps` | `is_phantom_item` | boolean | ligne du fantôme lui-même (4,3 M lignes sur la dernière extraction) |
+| `nomng`, `esmng` | `nominal_quantity`, `component_bom_quantity` | double | candidats pour la Prévision 2 (quantité sans rebut ?) [À VÉRIFIER G3] |
 | `baugr` | `higher_level_assembly` | string | fantôme parent des composants éclatés [À VÉRIFIER R7] |
 | `schgt` | `is_bulk_material` | boolean | |
 | `postp` | `BOM_item_category` | string | |
@@ -741,7 +754,7 @@ PK, `order_category`, `requirement_type`, `planned_order_number`, `work_order_nu
 `order_planned_start_date`, `order_planned_end_date`, `BOM_usage`, `BOM_alternative`, `production_version`,
 `reservation_number`, `reservation_item`, `reservation_record_type`, `component_material_number`,
 `requirement_quantity`, `component_base_unit`, `requirement_date`, `component_scrap_percentage`,
-`operation_scrap_percentage`, `is_net_scrap`, `is_phantom_item`, `higher_level_assembly`, `is_bulk_material`,
+`operation_scrap_percentage`, `nominal_quantity`, `component_bom_quantity`, `is_phantom_item`, `higher_level_assembly`, `is_bulk_material`,
 `BOM_item_category`, `BOM_item_number`, `BOM_category`, `BOM_number`, `BOM_node`, `BOM_item_counter`,
 `operation_number`, `recorded_from_date`, `recorded_to_date`, `is_current`.
 
@@ -805,7 +818,10 @@ par composant puis la moyenne ne se fait pas proprement en DAX DirectQuery) :
 ### 8.3 Périmètre OF et rattachement à la prévision T0
 
 Par période : OF avec `actual_start_date >= T1` et `actual_finish_date <= T2` (colonnes réelles de
-`work_orders_sap_exposed`, = `AFKO.GSTRI` / `GLTRI` [À VÉRIFIER Q10]), hors OF annulés.
+`work_orders_sap_exposed` : `real_start_date` = `AFKO.GSTRI`, `real_end_date` = `AFKO.GETRI` selon Genie [lineage à
+confirmer, G9]), hors `is_cancelled`, types d'ordre dans le périmètre **[TBD D20 : ZP01, ZP03, ZP04, ZP05, ZP09, YP04…]**.
+Ordre planifié d'origine : `planned_order_link` ; alternative de BOM : pas dans la Gold OF → prise dans B (dernière
+version connue de l'OF, `AFKO.STLAL`), à défaut via la version de production (`production_version` + MKAL).
 Pour chaque OF, prévision **connue à T0** :
 1. si l'OF existait à T0 → ses lignes B avec `recorded_from_date <= T0 < recorded_to_date` (`forecast_source = 'WORK_ORDER_AT_T0'`) ;
 2. sinon, si son OP d'origine (`origin_planned_order_number`) existait à T0 → lignes B de l'OP à T0 (`'PLANNED_ORDER_AT_T0'`) ;
@@ -821,32 +837,34 @@ défaut : `prévision_normalisée = prévision_T0 × quantité_OF_finale / quant
 - Exclure `is_phantom_item = True` (ligne du fantôme : SAP a déjà éclaté ses composants dans RESB), `is_item_deleted`,
   et `is_bulk_material` **[TBD]**.
 - Prévision 1 = Σ `requirement_quantity` par (OF, composant).
-- Prévision 2 = Prévision 1 sans rebut **[TBD : quels rebuts ?]**. Proposition :
-  `requirement_quantity / (1 + component_scrap_percentage/100) / (1 + operation_scrap_percentage/100)`, et en plus
-  `/ (1 + assembly_scrap_percentage/100)` quand `is_net_scrap = False` (rebut d'ensemble `MARC.AUSSS` de l'AF à T0,
-  lu dans A). Les quantités fixes ne portent pas de rebut proportionnel.
+- Prévision 2 = Prévision 1 sans rebut **[TBD D4]**. Si `nominal_quantity` / `component_bom_quantity` s'avèrent être
+  la quantité sans rebut (G3), on les prend telles quelles. Sinon : `requirement_quantity / (1 + component_scrap_percentage/100)`
+  (2,2 M lignes RESB ont `ausch > 0`, F5), puis retrait du rebut d'ensemble de l'AF selon la façon dont il apparaît
+  dans l'ordre (quantité d'ordre gonflée ou quantité rebut séparée, G4). `netau` n'existe pas dans RESB (R2) et ne
+  concerne que 10 postes de BOM : ignoré. Les quantités fixes ne portent pas de rebut proportionnel.
 - Postes de nomenclature (page 3 optionnelle) : composant issu d'un fantôme (`higher_level_assembly` renseigné) →
   `BOM_item_number = '9999'`.
 
 ### 8.5 Prévision 3 (depuis A)
 
 Pour chaque OF : BOM de (`plant`, `material_number`, `BOM_usage`, alternative **de l'OF**) **connue à K = T0, valide à
-D = date de début prévue de l'OF connue à T0** (sinon début réel) **[TBD : D = T0 ou date de l'OF]**, résolue selon §5.8.
+D = T0**, résolue selon §5.8. Justification : aucun poste ni allocation n'a de date de validité postérieure à sa
+date d'extraction (F7) — SAP ne contient pas de changement daté dans le futur, donc valider à une date postérieure à T0
+ne changerait rien.
 
 Besoin par poste (unité de base composant) :
 ```
 si is_fixed_quantity : q = component_quantity_in_base_unit
 sinon                : q = component_quantity_in_base_unit / BOM_base_quantity × quantité_OF
-rebut = component_scrap_percentage si > 0, sinon material_component_scrap_percentage   # logique SAP AUSCH / KAUSF [À VÉRIFIER F5]
-q = q × (1 + rebut/100) × (1 + assembly_scrap_percentage/100 si non is_net_scrap)        # [TBD D5 : inclus ou non]
+rebut = component_scrap_percentage si > 0, sinon material_component_scrap_percentage   # logique SAP AUSCH / KAUSF
+q = q × (1 + rebut/100) × (1 + assembly_scrap_percentage/100 si non is_net_scrap)        # AUSSS : 32 196 AF [TBD D5]
 ```
 puis éclatement des fantômes (§8.6) et Σ par (OF, composant).
 
 ### 8.6 Explosion des fantômes (Prévision 3)
 
-Un poste est fantôme si `is_phantom_item = True` dans A (poste `SOBSL = '50'` ou `MARC.SOBSL = '50'` du composant à
-la date K). Genie a répondu « pas de fantôme » en testant `stkkz` (indicateur d'ensemble, pas de fantôme) : à
-re-vérifier (F4). Boucle bornée :
+Un poste est fantôme si `is_phantom_item = True` dans A (`MARC.SOBSL = '50'` du composant dans l'usine, à la date K ;
+~17 269 articles concernés, dont 7 859 en usine 1000). Boucle bornée :
 
 ```python
 MAX_PHANTOM_DEPTH = 5
@@ -862,13 +880,19 @@ même `BOM_usage`, alternative `01` **[À VÉRIFIER]**.
 ### 8.7 Consommations
 
 Depuis `part_movement_exposed`, OF du périmètre seulement (`remove_leading_zeros` sur `Work_order`) :
-- exclure l'entrée en stock de l'AF lui-même (`component = material_number de l'OF`, mouvements 101/102) ;
-- signe : `SHKZG = 'H'` (sortie) → +, `'S'` → − si la colonne est exposée [Q11] ; sinon table de signes par type de
-  mouvement en constante ;
-- Conso 1 = tous les autres mouvements imputés à l'OF ;
-- Conso 2 = types dans `NOMINAL_MOVEMENT_TYPES = ["261", "262"]` **[TBD : exclure la casse ; liste à valider avec Q11]** ;
-- Conso 3 = **non calculée en v1** (méthode TBD) : colonne présente à NULL pour que le rapport ait sa forme finale.
-- Agrégation Σ par (OF, composant) **avant** toute jointure ; quantité en unité de base [À VÉRIFIER Q11].
+Types de mouvement imputés aux OF sur 12 mois (M2) : 261 (8,28 M), 101 (373 k), 262 (36 k), 102 (3,6 k), 531 (2,9 k),
+532 (24), 122 (4), 521 (1). Aucun type Z/Y (M7). Inventaires 701/702 jamais imputés à un OF (M4).
+- exclure l'entrée en stock de l'AF lui-même : 101, 102, 122 (et tout mouvement sur `material_number` de l'OF, M3) ;
+- signe : colonne `DC_indicator` (= SHKZG) : `H` (sortie) → +, `S` → − ; `Quantity` est une chaîne → `try_cast` ;
+- **unité** : `Unit` est l'unité de saisie, pas l'unité de base (M1) → conversion vers l'unité de base du composant
+  (colonne de quantité en unité de base si elle existe, sinon table de conversion Gold — G5) ;
+- Conso 1 = 261, 262, 531, 532 (531/532 = sous-produits, en négatif) et tout autre type hors entrée de l'AF ;
+- Conso 2 = `NOMINAL_MOVEMENT_TYPES = ["261", "262"]` — il n'existe pas de type « casse » imputé aux OF ; la casse,
+  si elle doit être exclue, n'est pas identifiable par le type de mouvement **[TBD D6 avec le métier]** ;
+- Conso 3 = **non calculée en v1** : les 701/702 ne sont imputés qu'à un article × magasin ; une répartition au
+  prorata (par composant, usine, période, au prorata des consommations des OF) est à définir **[TBD D7]**. Colonne à NULL.
+- Agrégation Σ par (OF, composant) **avant** toute jointure. 9 648 couples (OF, composant) ont une conso nette
+  négative (M5) → règle D8. Historique des mouvements depuis 2020-01-01 (M6).
 
 ### 8.8 Comparaison et fiabilité
 
@@ -952,8 +976,8 @@ Tags, `run_as`, notifications, `base_parameters` : CLAUDE.md §11. `lab_target_s
 | D2 | T0 antérieur à 2023-09-17 | Hors grille (pas de prévision OP/OF possible) | Métier |
 | D3 | Normalisation volume (§8.3) | prévision × qté finale / qté T0 | Métier |
 | D4 | Prévision 2 : quels rebuts retirer | composant + opération + ensemble | Métier |
-| D5 | Prévision 3 : avec ou sans rebut composant ; date de validité D | avec ; D = début prévu de l'OF connu à T0 | Métier |
-| D6 | Conso 2 : types de mouvement nominaux | 261/262 | Métier + Q11 |
+| D5 | Prévision 3 : avec ou sans rebut composant / d'ensemble | avec ; D = T0 (F7) | Métier |
+| D6 | Conso 2 : types nominaux ; la casse n'a pas de type de mouvement propre (M7) | 261/262 | Métier |
 | D7 | Conso 3 : méthode de régularisation | non calculée en v1 | Métier |
 | D8 | Vrac, hors stock, conso nette négative | exclus / exclus / ramenée à 0 | Métier |
 | D9 | Agrégation CP/division | moyenne des erreurs composants | Métier |
@@ -965,7 +989,9 @@ Tags, `run_as`, notifications, `base_parameters` : CLAUDE.md §11. `lab_target_s
 | D15 | Numéro de UC, domaine Proj, dossier `proj/` | — | Équipe |
 | D16 | Nommage PK/contraintes (Confluence vs existant) | `{table}_ID` / `gold_{table}_PK` | Équipe (CLAUDE.md §16.9) |
 | D17 | Catégories de poste `Z`, `0`, `1`, `2`, `4`, `U`, `V` : prévision ou non ? | à décider après F8 | Métier |
-| D18 | Où est le « +20 % » de rebut (KAUSF, AUSSS, saisie sur l'OF) ? | après F5 et R11 | Data + Métier |
+| D18 | Où est le « +20 % » de rebut ? | Surtout `MARC.AUSSS` (32 196 AF) + `RESB.AUSCH` (2,2 M lignes) ; KAUSF marginal (350) — à confirmer avec G3/G4 | Data + Métier |
+| D20 | Types d'ordre dans le périmètre (ZP01, ZP03, ZP04, ZP05, ZP09, YP04…) | à décider après G8 | Métier |
+| D21 | Extractions RESB anormales (2025-03-31) | exclure les snapshots anormaux, après G1 | Data |
 | D19 | Réutiliser / étendre le job existant `W_3_SAP_AS_Design_BOM_DataAsset` (`prod_silver.production.bom`) ? | après F10 | Équipe LEAP |
 
 ---
@@ -1018,6 +1044,21 @@ Détail des requêtes et résultats : `Workbench/bom_reliability/working/correct
 - **B7** : « aucun versionnement par `stpoz` » est exact mais ne veut pas dire « pas de versionnement » : il passe par
   de nouveaux nœuds (F6).
 
-### 13.3 Questions de suivi
+### 13.3 Lot 2 (F, R, W, M, D) — ce qui change
 
-Voir `working/genie_questions_and_output_tests.md` §1.9 (F1–F12), puis les blocs 4 à 6 restants.
+| Point | Résultat | Impact |
+|---|---|---|
+| `file_mode` | FULL uniquement pour RESB, PLAF, AFKO, AFPO, STPO, STKO, STAS, MAST ; **DELTA** aussi pour MARC (44) et MARM (500) | MARC/MARM : extractions FULL seulement ; garde-fou RED `file_mode = 'FULL'` sur toutes les dates retenues |
+| RESB | Partitionné par `extraction_timestamp` ; hebdo 2023-09 → 2024-09 puis quotidien ; 79,5 M lignes ; 38,6 M « ouvertes » | Élagage hebdo confirmé ; filtre d'horizon ajouté |
+| RESB 2025-03-31 | Quasi toutes les lignes AR/SB avec `xloek = 'X'` | Anomalie à expliquer (G1), contrôle par snapshot |
+| Fantômes | `sobsl`/`dumps` absents de STPO ; MARC `sobsl = '50'` ~17 269 articles ; RESB `dumps = 'X'` 4,3 M lignes | Fantôme = MARC du composant (A), `dumps` (B) |
+| Rebuts | AUSSS 32 196 AF ; KAUSF 350 ; RESB `ausch > 0` 2,2 M lignes ; Gold : `scrap_component_percentage`, `MARC_ausss` | Prévision 2 : retirer AUSCH + rebut d'ensemble (G3/G4) |
+| ECN | `vgknt` renseigné sur 432 815 postes (9,2 %) ; 1 091 013 allocations STAS `lkenz = 'X'` ; aucune validité future | Résolution §5.8 indispensable ; D = T0 |
+| RESB colonnes | Tout présent sauf `netau` ; `nomng`, `esmng` présents | `is_net_scrap` retiré de B |
+| OF | `planned_order_link`, `production_version` dans la Gold ; pas de `stlal` ; `real_end_date` = GETRI (probable) ; `aufnr` RESB sur 12 caractères avec zéros | Alternative prise dans B ; `remove_leading_zeros` |
+| Mouvements | `DC_indicator`, `Quantity` en texte, `Unit` = unité de saisie ; 261/262/531/532 ; pas de type Z ; 701/702 jamais sur OF ; 9 648 consos nettes négatives ; depuis 2020 | §8.7 réécrit |
+| Référentiel | `material_plant` : `profit_center`, `external_lead_time`, `internal_lead_time`, `procurement_special_type`, `standard_price_eur_budget`, `material_base_unit`, `familly_std`, `classe_std`, `abc_indicator` ; `material_exposed` : description, famille, classe… | Colonnes de la page 2 disponibles |
+
+### 13.4 Questions de suivi
+
+Voir `working/genie_questions_and_output_tests.md` §1.10 (lot 3 : G1–G10 + questions non traitées du lot 2).
