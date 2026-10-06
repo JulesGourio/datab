@@ -1,0 +1,36 @@
+# Skeleton — compare with a reference bundle in platform/asset_bundle/ before use.
+bundle:
+  name: <asset_name>
+
+include:
+  - resources/*.yml
+
+variables:
+  pipeline_write_env:
+    default: dev
+  pipeline_read_env:
+    default: dev
+  reference_read_env:
+    default: prod
+
+targets:
+  dev:
+    mode: development
+    default: true
+    variables:
+      pipeline_write_env: dev
+      pipeline_read_env: dev
+      reference_read_env: prod
+  uat:
+    variables:
+      pipeline_write_env: uat
+      pipeline_read_env: uat
+      reference_read_env: prod
+  prod:
+    variables:
+      pipeline_write_env: prod
+      pipeline_read_env: prod
+      reference_read_env: prod
+    # Prod runs code from git main only:
+    git:
+      branch: main

@@ -1,0 +1,34 @@
+# Skeleton — job name: <JOB_LAUNCH>_<LEVEL>_<DOMAIN>_<PURPOSE>, e.g. D_2_SAP_General_Ledger_Data_Asset
+# Cluster policy ids, service principal and git source: copy from a reference bundle.
+resources:
+  jobs:
+    D_2_<Domain>_<Asset>_Data_Asset:
+      name: D_2_<Domain>_<Asset>_Data_Asset
+      tags:
+        activity-type: ${var.pipeline_write_env}-job
+        job-purpose: data-asset
+        data-asset-domain: <domain>
+        data-asset-group: da-<group>
+      # run_as: job-runner-sa-${var.pipeline_write_env} service principal
+      # schedule: timezone_id: Europe/Brussels
+      # email_notifications: on_failure: [LEAP_Databricks_Alert@latecoere.aero], no_alert_for_canceled_runs: true
+      # queue: enabled: true
+      tasks:
+        - task_key: silver_<table>
+          # job_cluster_key -> policy-based cluster (default size S), data_security_mode: SINGLE_USER, no Photon
+          notebook_task:
+            notebook_path: ../../../data_asset/<domain>/<asset>/create_silver_<asset>.py
+            base_parameters:
+              pipeline_read_env: ${var.pipeline_read_env}
+              pipeline_write_env: ${var.pipeline_write_env}
+              reference_read_env: ${var.reference_read_env}
+          # libraries declared here on the task, never on the cluster
+        - task_key: gold_<table>
+          depends_on:
+            - task_key: silver_<table>
+          notebook_task:
+            notebook_path: ../../../data_asset/<domain>/<asset>/create_gold_<asset>.py
+            base_parameters:
+              pipeline_read_env: ${var.pipeline_read_env}
+              pipeline_write_env: ${var.pipeline_write_env}
+              reference_read_env: ${var.reference_read_env}
