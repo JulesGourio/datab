@@ -396,7 +396,7 @@ TABLE_PK_COLS = PK_COL  # comma-separated if several
 nb_cons = spark.sql(
     f"select count(*) from system.information_SCHEMA.table_constraints "
     f"where table_CATALOG='{CATALOG}' and table_SCHEMA='{SCHEMA}' "
-    f"and table_name='{DESTINATION_TABLE}' and constraint_name='{TABLE_CONSTRAINT_NAME}'"
+    f"and table_name='{DESTINATION_TABLE}' and lower(constraint_name)=lower('{TABLE_CONSTRAINT_NAME}')"
 ).first()[0]
 
 if nb_cons == 0:

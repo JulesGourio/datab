@@ -602,6 +602,9 @@ df_gx_marm = SparkDFDataset(df_marm_prep, persist=False)
 df_base_unit_prep = df_material_raw.select(
     f.col("material_number").alias("component_material_number"),
     f.col("material_base_unit").alias("component_base_unit"),
+)
+df_base_unit_prep = table_utils.remove_leading_zeros(
+    df=df_base_unit_prep, column_names=["component_material_number"]
 ).dropDuplicates(["component_material_number"])
 
 df_gx_base_unit = SparkDFDataset(df_base_unit_prep, persist=False)
@@ -874,7 +877,7 @@ TABLE_PK_COLS = PK_COL
 nb_cons = spark.sql(
     f"select count(*) from system.information_SCHEMA.table_constraints "
     f"where table_CATALOG='{CATALOG}' and table_SCHEMA='{SCHEMA}' "
-    f"and table_name='{DESTINATION_TABLE}' and constraint_name='{TABLE_CONSTRAINT_NAME}'"
+    f"and table_name='{DESTINATION_TABLE}' and lower(constraint_name)=lower('{TABLE_CONSTRAINT_NAME}')"
 ).first()[0]
 
 if nb_cons == 0:

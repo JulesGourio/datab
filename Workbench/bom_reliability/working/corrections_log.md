@@ -162,3 +162,25 @@ Non traités par Genie (repris au lot 3) : F4d, F4f, F8, F9, F10, R5, R9 (compta
   différents, valeurs métier identiques (`sobsl` 40, `kausf` 0, `ausss` 0), même `ingestion_timestamp`
   (rechargement du 2024-01-31). Le doublon vient donc de l'extraction SAP, pas de l'ingestion ; le garder une
   seule fois ne change aucune valeur. Cause SAP (mandant, `matnr` avec espace ?) à vérifier si besoin.
+
+## 2026-10-07 — Lab run 2 de `create_gold_bom_item_history` (OK) — contrôles de sortie
+
+Run en job, toutes usines, tout l'historique. Résultats des requêtes de contrôle :
+- 141 702 196 lignes, 42 snapshots (2023-05-01 → 2026-10-01), PK unique et non nulle, extraction toujours
+  antérieure au snapshot, usage 1 seulement, rétro-datation MAST/STAS limitée à 2023-05 → 2024-06.
+- Profil mensuel régulier (3,03 M → 3,69 M lignes), pas de saut en 2024-07 à la fin de la rétro-datation.
+- Dernier snapshot : 3 688 354 lignes, 3 631 652 noeuds = 4 715 776 noeuds STPO − 1 079 402 noeuds clos par STAS
+  (ECN) − 2 417 sans STAS − 1 448 sans lien MAST usage 1 − 2 inexpliqués. Aucun noeud hors STPO.
+  Aucun ancien noeud ECN présent avec son remplaçant (pas de double comptage).
+- Ratios cohérents avec STPO (≈ 77 % des noeuds actifs) : rebut composant 1 186 noeuds, quantité fixe 53 413,
+  vrac 97 762 ; composants fantômes 10 899 (≈ 11 245 en F4d) ; quantités négatives 881.
+- Exemples de référence E1 : 00167113/00000895 1 → 2 au snapshot 2025-11-01 ; 00169610/00000113 93 → 89 au
+  2026-03-01 ; 00226287/00000030 164 → 66 au 2025-07-01.
+- Conversion d'unité manquante : 6 lignes (G→U, 1 composant ; U sans unité de base).
+- Écarts à analyser : `component_base_unit` NULL sur 93 954 lignes (correction : zéros retirés côté
+  `material_exposed`) ; seulement 219 AF avec rebut d'ensemble > 0 contre 32 196 articles `ausss > 0` dans
+  `marc_latest` (requête de diagnostic envoyée).
+- Bug trouvé : la contrainte est stockée en minuscules (`gold_bom_item_history_pk`), la recherche idempotente
+  comparait avec `gold_bom_item_history_PK` → le run suivant aurait tenté de recréer la PK. Corrigé avec `lower()`
+  (A, B, templates) ; règle ajoutée dans les guidelines.
+- Vue `_exposed` pas encore créée.

@@ -210,6 +210,8 @@ Gold notebook kept verbatim. Patterns worth copying:
 - **Outputs**: `CATALOG`/`SCHEMA`/`DESTINATION_TABLE` constants → `CREATE DATABASE IF NOT EXISTS` → `save_table`
   inside `try/except AnalysisException` with timing log → **idempotent PK constraint** (look up
   `system.information_schema.table_constraints`; only if absent, set NOT NULL then add PK).
+  Unity Catalog stores constraint names in lowercase: compare with `lower(constraint_name) = lower('<name>')`,
+  otherwise the lookup never matches `gold_<table>_PK` and the second run fails on "constraint already exists".
 - `Technical debt` states concrete debt (e.g. "PIPELINE_READ_ENV used for X instead of REFERENCE_READ_ENV").
 
 **Deviations in the example — do NOT copy** (they would be flagged by the Convention Checker / review, or differ
