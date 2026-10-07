@@ -184,3 +184,11 @@ Run en job, toutes usines, tout l'historique. Résultats des requêtes de contr�
   comparait avec `gold_bom_item_history_PK` → le run suivant aurait tenté de recréer la PK. Corrigé avec `lower()`
   (A, B, templates) ; règle ajoutée dans les guidelines.
 - Vue `_exposed` pas encore créée.
+- Diagnostic ⑦ : les 37 387 composants sans unité de base sont **absents de `material_exposed`** (ni tel quel ni
+  sans zéros). → A lit l'unité de base dans `{REFERENCE_READ_ENV}_bronze.sap_latecoere_ecc6.mara_latest`.
+  À vérifier pour C : descriptions et attributs des composants viennent de `material_exposed` / `material_plant`.
+- Diagnostic ⑧/⑨ : les 32 196 articles `ausss > 0` sont surtout des **achetés** (`beskz = F`, `sobsl = 20`,
+  types ROH / CA : écrous, vis, fermetures…). Seuls 219 AF de BOM ont un rebut d'ensemble. Pour un acheté, SAP
+  applique `ausss` à ses propres propositions d'achat, pas aux besoins des OF : ce rebut n'entre dans aucune des
+  Prévisions 1/2/3. Rebut réellement porté par les BOM / OF : `ausch` (1 186 noeuds actifs), `kausf` (350
+  articles), `ausss` des AF (219). → question métier : le « +20 % » est-il ce rebut côté achat ?

@@ -34,7 +34,7 @@
 # MAGIC - {REFERENCE_READ_ENV}_landingzone.sap_latecoere_ecc6.mast_stack
 # MAGIC - {REFERENCE_READ_ENV}_landingzone.sap_latecoere_ecc6.marc_stack
 # MAGIC - {REFERENCE_READ_ENV}_landingzone.sap_latecoere_ecc6.marm_stack
-# MAGIC - {REFERENCE_READ_ENV}_gold.master_data.material_exposed
+# MAGIC - {REFERENCE_READ_ENV}_bronze.sap_latecoere_ecc6.mara_latest
 # MAGIC
 # MAGIC **Output Tables (Pipeline)**
 # MAGIC - {PIPELINE_WRITE_ENV}_gold.production.bom_item_history
@@ -53,7 +53,8 @@
 # MAGIC   between 2023-04 and 2024-06 is missing for that period.
 # MAGIC - Unit conversions of the same dimension (IN -> M, MM -> M, G -> KG...) have no MARM record: they come from the
 # MAGIC   constant `ISO_UNIT_FACTORS` below (SAP uses table T006, not available in the lakehouse).
-# MAGIC - Base unit of the component comes from the current `material_exposed` (not historised).
+# MAGIC - Base unit of the component comes from the current MARA (`mara_latest`, not historised). `material_exposed`
+# MAGIC   was not used: 37k BOM components are missing from it (lab run 2).
 # MAGIC - MARC / MARM (and PLAF / AFKO in the requirement history) contain a few repeated rows in some extractions
 # MAGIC   (e.g. article F5391312700300 / plant 1900 in the extraction used for 2023-05 and 2023-06):
 # MAGIC   `keep_latest_row()` keeps one. The repeat is inside the SAP extract file (identical values), not the ingestion.
@@ -282,12 +283,13 @@ df_marm_raw = spark.read.table(f"{LANDING_ZONE_SCHEMA}.marm_stack")
 # COMMAND ----------
 
 # MAGIC %md
-# MAGIC ### Gold tables
-# MAGIC Base unit of each component (unit of reservations and goods movements).
+# MAGIC ### Bronze tables
+# MAGIC Base unit of each component (unit of reservations and goods movements). Read from MARA because the Gold
+# MAGIC `material_exposed` does not hold every BOM component (37k missing).
 
 # COMMAND ----------
 
-df_material_raw = spark.read.table(f"{REFERENCE_READ_ENV}_gold.master_data.material_exposed")
+df_mara_raw = spark.read.table(f"{REFERENCE_READ_ENV}_bronze.sap_latecoere_ecc6.mara_latest")
 
 # COMMAND ----------
 
@@ -599,9 +601,9 @@ df_gx_marm = SparkDFDataset(df_marm_prep, persist=False)
 
 # COMMAND ----------
 
-df_base_unit_prep = df_material_raw.select(
-    f.col("material_number").alias("component_material_number"),
-    f.col("material_base_unit").alias("component_base_unit"),
+df_base_unit_prep = df_mara_raw.select(
+    f.trim("matnr").alias("component_material_number"),
+    f.trim("meins").alias("component_base_unit"),
 )
 df_base_unit_prep = table_utils.remove_leading_zeros(
     df=df_base_unit_prep, column_names=["component_material_number"]
