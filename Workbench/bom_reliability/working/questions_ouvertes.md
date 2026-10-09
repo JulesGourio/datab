@@ -106,3 +106,14 @@ Vérifications Genie associées : RB1–RB4 (rebut), RA1–RA2 (ajustements) —
   la réservation (94 % pour les autres achetés). Pourquoi ? (sorties en libre-service ou sur centre de coût,
   vrac, OF soldés sans sortie…) Ces composants ressortiront en « surstock » dans le rapport.
 
+
+## Décisions du 2026-10-09
+
+- **R1 / R2 fermées** : le « +20 % » de la demande était un exemple, pas une règle métier. On suit SAP : Prévision 1
+  = besoin de l'OF avec le rebut appliqué par SAP (rebut composant du poste, sinon de la fiche article) ; le rebut
+  d'ensemble (jamais appliqué aux OF) est ignoré ; pas de colonne « rebut achat ».
+- **R3 fermée** : Prévision 2 = besoin de l'OF sans rebut composant (`esmng`) — définition actuelle conservée.
+- **H1** : historique **incrémental** à prévoir, probablement via des tables **bronze `*_history`** (à clarifier :
+  qui les construit, plateforme ou projet).
+- **H8** : oui, le service principal lit `prod_landingzone`.
+- **H9** : signature de `create_table_view` à relever dans Databricks (commande donnée).
