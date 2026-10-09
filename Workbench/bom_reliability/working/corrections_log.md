@@ -215,3 +215,20 @@ Run en job, toutes usines, tout l'historique. Résultats des requêtes de contr�
 - **RA2** : 82 OF terminés en 2025 dont l'AF a `ausss > 0` (jusqu'à 20 %) : `gasmg = 0` et `gamng` = quantité
   planifiée dans 100 % des cas → le **rebut d'ensemble des AF n'est pas appliqué** aux OF chez Latécoère.
   Cohérent avec C (rebut d'ensemble non ajouté à la Prévision 3).
+
+## 2026-10-09 — Genie : GQ1–GQ4 et corrections
+
+- **GQ1** : `resb_stack` contient deux familles de fichiers, `SAP-RESB-F-ACT` (réservations mélangées) et
+  `SAP-RESB-F-NOACT` (réservations ouvertes). Hypothèse : certaines extractions ne contiennent qu'une famille, ce qui
+  explique les profils A/B/C observés. → **B** : l'heuristique « extraction avec le plus de lignes ouvertes » est
+  remplacée par la dernière extraction **de chaque famille** avant chaque 1er du mois, union des deux, dédoublonnage
+  par réservation (extraction la plus récente gagne), filtre « besoin ouvert » conservé. Un mois sans l'une des
+  familles est écarté (`log.warning`). À confirmer : ACT et NOACT ont-ils parfois des `extraction_timestamp` différents ?
+- **GQ2** : les composants absents de `material_exposed` sont des articles obsolètes / remplacés. → **A** lit les
+  descriptions dans `makt_latest` (français, sinon anglais) : `material_description`, `component_description`.
+  **C** : description de `material_exposed` d'abord, sinon celle portée par `bom_item_history`.
+- **GQ3** : les mouvements 543 (sous-traitance) expliquent une partie (~9 %) de la sous-consommation de la visserie
+  achetée sur les OF. M17 reste une question métier.
+- **GQ4** : pas de motif de mouvement (`grund`) dans `part_movement_exposed` (seulement `Storage_location` /
+  `Item_text`) → la casse n'est pas identifiable depuis la Gold. Conso 2 = 261/262 (M7 reste ouvert).
+- À faire : relancer A (puis B, C) en lab avec les mêmes paramètres de job.

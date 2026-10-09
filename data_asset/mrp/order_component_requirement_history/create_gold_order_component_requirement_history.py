@@ -11,10 +11,11 @@
 # MAGIC
 # MAGIC **Highlighted complexities:**
 # MAGIC - Source is `resb_stack` (~59 bn rows, one extraction per `extraction_timestamp`, weekly until 2024-09 then
-# MAGIC   daily). Several SAP files with different scopes are ingested: some extractions hold the closed / deleted
-# MAGIC   reservations only (~5 % open lines), others the open ones. For each snapshot date we look at the last
-# MAGIC   `CANDIDATE_EXTRACTIONS` extractions before it and take the **latest one holding the open requirements**
-# MAGIC   (>= 80 % of the best candidate's open lines). A snapshot far below the usual open volume is dropped (logged).
+# MAGIC   daily). A full RESB extraction is split into two file families: `SAP-RESB-F-ACT` (open and closed lines)
+# MAGIC   and `SAP-RESB-F-NOACT` (almost only open lines). Some `extraction_timestamp` values hold only one family:
+# MAGIC   taking a single timestamp then misses half of the open requirements. For each snapshot date we therefore take,
+# MAGIC   **per file family**, the latest extraction before the date that holds it, and union both (a reservation
+# MAGIC   present in both keeps its most recent version). A snapshot missing a family in the window is dropped (logged).
 # MAGIC - "Open" = `bdart` AR/SB, not deleted (`xloek`), not finally issued (`kzear`), nothing withdrawn (`enmng = 0`),
 # MAGIC   requirement date within `MAX_HORIZON_MONTHS` (planned orders run years ahead: 20 M lines beyond 13 months).
 # MAGIC - Order headers (PLAF for OP, AFKO/AFPO for OF) come from their latest extraction not after the RESB one.
@@ -42,8 +43,10 @@
 # MAGIC - Landing zone stacks are read directly from Gold (no Bronze history table exists).
 # MAGIC - `sap_number()`, `month_starts()` are duplicated from `create_gold_bom_item_history`: move to `leap_utils`
 # MAGIC   before the Bitbucket PR.
-# MAGIC - Choice of the RESB extraction by "most open lines" works around the mixed extraction scopes of
-# MAGIC   `resb_stack`; to be replaced by a filter on `file_name` once the source files are documented.
+# MAGIC - The RESB file family is read from `file_name` (`SAP-RESB-F-ACT` / `SAP-RESB-F-NOACT`): a change of file
+# MAGIC   naming at the source breaks the snapshot selection (files without family are treated as a full extraction).
+# MAGIC - When the two families come from different extractions (logged), a line closed in the newer one but still
+# MAGIC   open in the older one is kept as open (the open filter runs before the deduplication, to keep the volume low).
 # MAGIC - `component_BOM_quantity` (`esmng`) is taken as the requirement without component scrap (checked on samples:
 # MAGIC   `bdmng` = `esmng` x (1 + `ausch`) rounded up). To be confirmed on planned orders (`SB`).
 # MAGIC - `order_scrap_quantity` of planned orders uses `plaf.avmng` (to be confirmed).
@@ -64,7 +67,6 @@
 # COMMAND ----------
 
 import datetime
-import statistics
 import time
 
 from pyspark.sql import functions as f
@@ -153,10 +155,8 @@ LANDING_ZONE_SCHEMA = f"{REFERENCE_READ_ENV}_landingzone.sap_latecoere_ecc6"
 
 REQUIREMENT_TYPES = {"AR": "WORK_ORDER", "SB": "PLANNED_ORDER"}  # bdart -> order category
 MAX_HORIZON_MONTHS = 13  # longest analysed period P1 + P2 is 12 months
-CANDIDATE_EXTRACTIONS = 5  # last RESB extractions considered before each snapshot date...
-CANDIDATE_MAX_AGE_DAYS = 35  # ...if not older than this (weekly extractions until 2024-09)
-CANDIDATE_OPEN_LINES_RATIO = 0.8  # latest candidate with >= 80 % of the best candidate's open lines wins
-MIN_OPEN_LINES_RATIO = 0.5  # snapshot dropped if its open lines < 50 % of the median of the snapshots
+RESB_FILE_FAMILIES = ["ACT", "NOACT"]  # a full RESB extraction = both file families
+CANDIDATE_MAX_AGE_DAYS = 35  # RESB extractions considered before each snapshot date (weekly until 2024-09)
 
 # COMMAND ----------
 
@@ -276,13 +276,14 @@ def open_requirements(df_resb):
 # COMMAND ----------
 
 # MAGIC %md
-# MAGIC ##Prep2 - Snapshot calendar and choice of the RESB extraction
-# MAGIC Snapshot dates = first day of each month after the first RESB extraction. Candidates = the last
-# MAGIC `CANDIDATE_EXTRACTIONS` RESB extractions strictly before the snapshot date (max `CANDIDATE_MAX_AGE_DAYS` old).
-# MAGIC Their open lines are counted (one aggregation on the candidate partitions only); the latest candidate with at
-# MAGIC least `CANDIDATE_OPEN_LINES_RATIO` x the best open volume wins.
+# MAGIC ##Prep2 - Snapshot calendar and choice of the RESB extractions
+# MAGIC Snapshot dates = first day of each month after the first RESB extraction. Candidates = the RESB extractions of
+# MAGIC the `CANDIDATE_MAX_AGE_DAYS` days strictly before the snapshot date. Their file families are read from
+# MAGIC `file_name` (candidate partitions only). For each family, the latest candidate holding it is kept.
 
 # COMMAND ----------
+
+RESB_FILE_FAMILY = f.regexp_extract(f.col("file_name"), "SAP-RESB-F-(NOACT|ACT)", 1)
 
 first_snapshot_after = resb_timestamps[0].date()
 if SNAPSHOT_FROM_DATE:
@@ -292,64 +293,67 @@ if SNAPSHOT_FROM_DATE:
     )
 SNAPSHOT_DATES = month_starts(first_snapshot_after, datetime.date.today())
 
-candidates = {
-    snapshot_date: [
+
+def candidates_before(snapshot_date):
+    return [
         ts
         for ts in resb_timestamps
         if snapshot_date - datetime.timedelta(days=CANDIDATE_MAX_AGE_DAYS) <= ts.date() < snapshot_date
-    ][-CANDIDATE_EXTRACTIONS:]
-    for snapshot_date in SNAPSHOT_DATES
-}
-candidate_timestamps = sorted({ts for tss in candidates.values() for ts in tss})
+    ]
 
-open_lines_per_extraction = {
-    r["extraction_timestamp"]: r["open_lines"]
-    for r in open_requirements(df_resb_raw.filter(f.col("extraction_timestamp").isin(candidate_timestamps)))
-    .groupBy("extraction_timestamp")
-    .agg(f.count(f.lit(1)).alias("open_lines"))
+
+candidate_timestamps = sorted({ts for d in SNAPSHOT_DATES for ts in candidates_before(d)})
+
+families_per_extraction = {}
+for r in (
+    df_resb_raw.filter(f.col("extraction_timestamp").isin(candidate_timestamps))
+    .select("extraction_timestamp", RESB_FILE_FAMILY.alias("resb_file_family"))
+    .distinct()
     .collect()
-}
+):
+    families_per_extraction.setdefault(r["extraction_timestamp"], set()).add(r["resb_file_family"])
 
 # COMMAND ----------
 
-chosen = {}
-for snapshot_date, tss in candidates.items():
-    if not tss:
-        continue
-    best_open_lines = max(open_lines_per_extraction.get(ts, 0) for ts in tss)
-    latest_valid = max(
-        ts for ts in tss if open_lines_per_extraction.get(ts, 0) >= CANDIDATE_OPEN_LINES_RATIO * best_open_lines
-    )
-    chosen[snapshot_date] = (open_lines_per_extraction.get(latest_valid, 0), latest_valid)
-
-median_open_lines = statistics.median(lines for lines, _ in chosen.values()) if chosen else 0
+resb_rows = set()  # (snapshot_date, extraction_timestamp, resb_file_family as found in file_name)
 mapping_rows = []
-for snapshot_date, (open_lines, resb_ts) in sorted(chosen.items()):
-    if open_lines < MIN_OPEN_LINES_RATIO * median_open_lines:
+for snapshot_date in SNAPSHOT_DATES:
+    chosen = {}
+    for family in RESB_FILE_FAMILIES:
+        # an extraction whose files carry no family ("") is taken as a full extraction
+        holding = [
+            ts
+            for ts in candidates_before(snapshot_date)
+            if family in families_per_extraction.get(ts, set()) or "" in families_per_extraction.get(ts, set())
+        ]
+        if holding:
+            chosen[family] = max(holding)
+    if len(chosen) < len(RESB_FILE_FAMILIES):
         log.warning(
-            f"Snapshot {snapshot_date} dropped: best RESB extraction {resb_ts} has {open_lines} open lines "
-            f"(median {median_open_lines})"
+            f"Snapshot {snapshot_date} dropped: RESB file families found {sorted(chosen)} "
+            f"in the {CANDIDATE_MAX_AGE_DAYS} days before"
         )
         continue
+    for family, ts in chosen.items():
+        resb_rows.add((snapshot_date, ts, family if family in families_per_extraction[ts] else ""))
+    latest_resb_ts = max(chosen.values())
+    if len(set(chosen.values())) > 1:
+        log.info(f"Snapshot {snapshot_date}: RESB file families taken from different extractions {chosen}")
     mapping_rows.append(
         (
             snapshot_date,
-            resb_ts,
-            latest_before(plaf_timestamps, resb_ts),
-            latest_before(afko_timestamps, resb_ts),
-            latest_before(afpo_timestamps, resb_ts),
-            open_lines,
+            latest_resb_ts,
+            latest_before(plaf_timestamps, latest_resb_ts),
+            latest_before(afko_timestamps, latest_resb_ts),
+            latest_before(afpo_timestamps, latest_resb_ts),
         )
     )
 
-for snapshot_date in SNAPSHOT_DATES:
-    if snapshot_date not in chosen:
-        log.warning(f"Snapshot {snapshot_date} dropped: no RESB extraction in the {CANDIDATE_MAX_AGE_DAYS} days before")
-
 df_snapshot_map = spark.createDataFrame(
-    mapping_rows,
-    "snapshot_date date, resb_ts timestamp, plaf_ts timestamp, afko_ts timestamp, afpo_ts timestamp, "
-    "_RESB_open_lines long",
+    mapping_rows, "snapshot_date date, resb_ts timestamp, plaf_ts timestamp, afko_ts timestamp, afpo_ts timestamp"
+)
+df_resb_map = spark.createDataFrame(
+    sorted(resb_rows), "snapshot_date date, extraction_timestamp timestamp, resb_file_family string"
 )
 log.info(f"{len(mapping_rows)} snapshots kept out of {len(SNAPSHOT_DATES)}")
 
@@ -366,6 +370,16 @@ def select_extractions(df_raw, timestamp_column):
     )
     return df_raw.filter(f.col("extraction_timestamp").isin(used_timestamps)).join(
         f.broadcast(df_map), ["extraction_timestamp"], how="inner"
+    )
+
+
+def select_resb_extractions():
+    """RESB rows of the chosen (extraction, file family) pairs, tagged with their snapshot date(s)."""
+    used_timestamps = sorted({row[1] for row in resb_rows})
+    return (
+        df_resb_raw.filter(f.col("extraction_timestamp").isin(used_timestamps))
+        .withColumn("resb_file_family", RESB_FILE_FAMILY)
+        .join(f.broadcast(df_resb_map), ["extraction_timestamp", "resb_file_family"], how="inner")
     )
 
 # COMMAND ----------
@@ -402,11 +416,20 @@ RESB_COLUMNS = [
     f.trim("stlkn").alias("BOM_node"),
     f.trim("vornr").alias("operation_number"),
     f.col("extraction_timestamp").alias("_RESB_extraction_timestamp"),
+    f.col("stack_row_id").alias("_stack_row_id"),
 ]
 
+# A reservation open in both chosen extractions keeps its most recent version
+window_resb = Window.partitionBy(
+    "snapshot_date", "reservation_number", "reservation_item", "reservation_record_type"
+).orderBy(f.desc("_RESB_extraction_timestamp"), f.desc("_stack_row_id"))
+
 df_resb_prep = (
-    open_requirements(select_extractions(df_resb_raw, "resb_ts"))
+    open_requirements(select_resb_extractions())
     .select(*RESB_COLUMNS)
+    .withColumn("rn", f.row_number().over(window_resb))
+    .filter("rn = 1")
+    .drop("rn", "_stack_row_id")
     .filter(f.col("requirement_date") <= f.add_months(f.col("snapshot_date"), MAX_HORIZON_MONTHS))
     .withColumn("order_category", f.col("requirement_type"))
     .replace(REQUIREMENT_TYPES, subset=["order_category"])

@@ -10,10 +10,10 @@ Chaque question indique **à qui la poser**, si elle **bloque**, et **ce que fai
 |---|---|---|---|
 | H1 | Les tables `prod_landingzone.sap_latecoere_ecc6.*_stack` sont-elles **garanties sans purge** dans la durée (politique de rétention, archivage) ? Si une purge est prévue, il faut passer à un historique incrémental (on ne pourra plus tout reconstruire). | 🔴 | Reconstruction complète à chaque run (VACUUM 40 j observé, aucune suppression de données) |
 | H2 | Lire les stacks de la **landing zone directement depuis un notebook Gold** est-il accepté par l'équipe LEAP, ou faut-il créer des tables bronze `*_history` ? | 🔴 | Lecture directe, déclarée en dette technique |
-| H3 | `resb_stack` mélange plusieurs fichiers SAP (réservations ouvertes / clôturées) selon les jours. **Quels fichiers** (`file_name`) contiennent les besoins ouverts ? | 🟠 | Heuristique : on prend l'extraction qui a le plus de lignes ouvertes avant chaque 1er du mois |
+| H3 | `resb_stack` : deux familles de fichiers `SAP-RESB-F-ACT` / `SAP-RESB-F-NOACT` (GQ1). Les deux familles ont-elles toujours le même `extraction_timestamp` ? | 🟢 | B prend la dernière extraction de chaque famille avant chaque 1er du mois et les unit |
 | H4 | Les extractions MARC / MARM contiennent des **lignes en double** dans le même fichier SAP (ex. article F5391312700300, usine 1900). Connu ? À corriger à la source ? | 🟢 | Une seule ligne gardée (valeurs identiques) |
 | H5 | Peut-on **réutiliser ou étendre** le job existant `W_3_SAP_AS_Design_BOM_DataAsset` (`prod_silver.production.bom`) plutôt qu'un nouvel actif ? Qui en est propriétaire ? | 🟠 | Nouvel actif Gold indépendant |
-| H6 | `prod_gold.master_data.material_exposed` ne contient pas **37 387 composants** de BOM. Quelle est la table de référence complète pour la **description** et les attributs articles (MAKT bronze ?) | 🔴 pour le rapport | Unité de base lue dans `mara_latest` ; descriptions encore lues dans `material_exposed` (trous attendus) |
+| H6 | Composants absents de `material_exposed` = articles obsolètes / remplacés (GQ2) | ✅ résolu | Unité de base `mara_latest`, descriptions `makt_latest` (FR puis EN) dans A ; C retombe sur ces descriptions |
 | H7 | Avant juin 2024, MAST / STAS n'existent pas en stack : on réutilise leur première extraction (juin 2024). Acceptable ? | 🟢 | Oui, flag `_is_backdated_link` |
 | H8 | Service principal `job-runner-sa-*` : a-t-il le droit de lire `prod_landingzone` ? | 🔴 pour la prod | Job lab lancé à votre nom |
 | H9 | Signature réelle de `table_utils.create_table_view` (vue `_exposed` pas encore créée) et ajout de fonctions communes dans `leap_utils` (`sap_number`, `keep_latest_row`, calendrier de snapshots) : qui valide ? | 🟠 | Fonctions copiées dans chaque notebook (dette technique) |
@@ -46,7 +46,7 @@ Chaque question indique **à qui la poser**, si elle **bloque**, et **ce que fai
 | M4 | **Quantité finale** de l'OF : quantité planifiée finale, ou livrée + rebutée ? | 🟠 | Quantité planifiée (GAMNG) |
 | M5 | « OF **commencés après T1 et terminés avant T2** » : fin = date de fin réelle, ou date TECO / clôture ? | 🟠 | Dates réelles de `work_orders_sap_exposed` |
 | M6 | **Types d'OF** dans le périmètre : Details Parts, Assembly Parts, Rush Orders — tous ? | 🟠 | Tous (hors annulés) |
-| M7 | **Conso 2 « nominale, sans la casse »** : SAP n'a pas de type de mouvement casse imputé aux OF (seulement 261/262). Comment identifier la casse ? (motif de mouvement, magasin, autre ?) Sinon Conso 1 ≈ Conso 2. | 🔴 | Conso 2 = 261/262 |
+| M7 | **Conso 2 « nominale, sans la casse »** : SAP n'a pas de type de mouvement casse imputé aux OF (seulement 261/262). Comment identifier la casse ? (motif de mouvement, magasin, autre ?) Sinon Conso 1 ≈ Conso 2. GQ4 : pas de `grund` dans `part_movement_exposed`. | 🔴 | Conso 2 = 261/262 |
 | M8 | **Conso 3** : les régularisations d'inventaire (701/702) ne sont jamais imputées à un OF. Méthode de répartition : par composant × usine × période, au prorata des consommations des OF ? Par magasin ? Par centre de profit ? | 🟠 | Non calculée (colonne vide) |
 | M9 | Mouvements **531/532** sur OF (souvent l'article fictif « SPLIT », sous-traitance) : dans Conso 1 ? | 🟢 | Inclus dans Conso 1 |
 | M10 | Consommation de **l'AF par son propre OF** (rework, 2 568 mouvements/an) : exclure ? | 🟢 | Exclue |
@@ -117,3 +117,11 @@ Vérifications Genie associées : RB1–RB4 (rebut), RA1–RA2 (ajustements) —
   qui les construit, plateforme ou projet).
 - **H8** : oui, le service principal lit `prod_landingzone`.
 - **H9** : signature de `create_table_view` à relever dans Databricks (commande donnée).
+
+## Mise à jour 2026-10-09 (GQ1–GQ4)
+
+- H3 → 🟢 (familles ACT / NOACT, B corrigé ; reste à confirmer les timestamps).
+- H6 → ✅ (MAKT).
+- M7 : la Gold ne porte pas de motif de mouvement ; il faudrait lire `grund` dans le bronze MSEG si le métier
+  identifie la casse par un motif.
+- M17 : les 543 (sous-traitance) expliquent ~9 % de l'écart ; le reste est à expliquer par le métier.

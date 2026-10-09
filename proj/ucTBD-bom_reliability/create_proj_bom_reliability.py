@@ -502,6 +502,26 @@ df_material_prep = df_material_raw.select(
 ).dropDuplicates(["material_number"])
 df_material_prep = table_utils.remove_leading_zeros(df=df_material_prep, column_names=["material_number"])
 
+# Description: material_exposed first; obsolete / replaced articles missing from it (~38k BOM components) take the
+# MAKT description carried by bom_item_history
+df_bom_description = (
+    df_bom_raw.select("material_number", "material_description")
+    .unionByName(
+        df_bom_raw.select(
+            f.col("component_material_number").alias("material_number"),
+            f.col("component_description").alias("material_description"),
+        )
+    )
+    .filter(f.col("material_description").isNotNull())
+    .groupBy("material_number")
+    .agg(f.max("material_description").alias("BOM_description"))
+)
+df_description_prep = (
+    df_material_prep.select("material_number", "material_description")
+    .join(df_bom_description, ["material_number"], how="full")
+    .select("material_number", f.coalesce("material_description", "BOM_description").alias("description"))
+)
+
 df_material_plant_prep = df_material_plant_raw.select(
     "material_number",
     "plant",
@@ -526,6 +546,7 @@ df_profit_center_prep = df_profit_center_raw.select(
 ).dropDuplicates(["profit_center"])
 
 df_gx_material = SparkDFDataset(df_material_prep, persist=False)
+df_gx_description = SparkDFDataset(df_description_prep, persist=False)
 df_gx_material_plant = SparkDFDataset(df_material_plant_prep, persist=False)
 df_gx_plant = SparkDFDataset(df_plant_prep, persist=False)
 df_gx_profit_center = SparkDFDataset(df_profit_center_prep, persist=False)
@@ -799,17 +820,23 @@ df_transf = (
 df_transf = df_transf.join(f.broadcast(df_period), ["period_ID"], how="left")
 
 df_transf = df_transf.join(
-    df_material_prep.select(
-        "material_number", f.col("material_description").alias("material_description")
-    ),
+    df_description_prep.select("material_number", f.col("description").alias("material_description")),
     ["material_number"],
+    how="left",
+)
+
+df_transf = df_transf.join(
+    df_description_prep.select(
+        f.col("material_number").alias("component_material_number"),
+        f.col("description").alias("component_description"),
+    ),
+    ["component_material_number"],
     how="left",
 )
 
 df_transf = df_transf.join(
     df_material_prep.select(
         f.col("material_number").alias("component_material_number"),
-        f.col("material_description").alias("component_description"),
         f.col("familly_std").alias("component_family"),
         f.col("classe_std").alias("component_class"),
     ),
@@ -952,6 +979,7 @@ red_quality_check_results = [
     df_gx_po_header_t0.expect_compound_columns_to_be_unique(["T0_date", "origin_planned_order_number"]),
     df_gx_scope.expect_compound_columns_to_be_unique(["period_ID", "work_order_number"]),
     df_gx_material.expect_column_values_to_be_unique(column="material_number"),
+    df_gx_description.expect_column_values_to_be_unique(column="material_number"),
     df_gx_material_plant.expect_compound_columns_to_be_unique(["material_number", "plant"]),
     df_gx_plant.expect_column_values_to_be_unique(column="plant"),
     df_gx_profit_center.expect_column_values_to_be_unique(column="profit_center"),

@@ -35,6 +35,7 @@
 # MAGIC - {REFERENCE_READ_ENV}_landingzone.sap_latecoere_ecc6.marc_stack
 # MAGIC - {REFERENCE_READ_ENV}_landingzone.sap_latecoere_ecc6.marm_stack
 # MAGIC - {REFERENCE_READ_ENV}_bronze.sap_latecoere_ecc6.mara_latest
+# MAGIC - {REFERENCE_READ_ENV}_bronze.sap_latecoere_ecc6.makt_latest
 # MAGIC
 # MAGIC **Output Tables (Pipeline)**
 # MAGIC - {PIPELINE_WRITE_ENV}_gold.production.bom_item_history
@@ -284,12 +285,13 @@ df_marm_raw = spark.read.table(f"{LANDING_ZONE_SCHEMA}.marm_stack")
 
 # MAGIC %md
 # MAGIC ### Bronze tables
-# MAGIC Base unit of each component (unit of reservations and goods movements). Read from MARA because the Gold
-# MAGIC `material_exposed` does not hold every BOM component (37k missing).
+# MAGIC Base unit (MARA) and description (MAKT) of each article. Read from Bronze because the Gold `material_exposed`
+# MAGIC leaves out ~38k BOM components (obsolete / replaced articles, still present in BOMs).
 
 # COMMAND ----------
 
 df_mara_raw = spark.read.table(f"{REFERENCE_READ_ENV}_bronze.sap_latecoere_ecc6.mara_latest")
+df_makt_raw = spark.read.table(f"{REFERENCE_READ_ENV}_bronze.sap_latecoere_ecc6.makt_latest")
 
 # COMMAND ----------
 
@@ -611,6 +613,35 @@ df_base_unit_prep = table_utils.remove_leading_zeros(
 
 df_gx_base_unit = SparkDFDataset(df_base_unit_prep, persist=False)
 
+# COMMAND ----------
+
+# MAGIC %md
+# MAGIC ##Prep8 - Article descriptions (MAKT)
+# MAGIC French description (the language filled for every article), English when no French text exists.
+
+# COMMAND ----------
+
+DESCRIPTION_LANGUAGES = ["F", "E"]  # order of preference
+
+window_makt = Window.partitionBy("material_number").orderBy(
+    f.when(f.col("spras") == DESCRIPTION_LANGUAGES[0], 0).when(f.col("spras") == DESCRIPTION_LANGUAGES[1], 1)
+)
+
+df_description_prep = (
+    df_makt_raw.select(
+        f.trim("matnr").alias("material_number"),
+        f.trim("spras").alias("spras"),
+        f.trim("maktx").alias("material_description"),
+    )
+    .filter(f.col("spras").isin(DESCRIPTION_LANGUAGES))
+)
+df_description_prep = table_utils.remove_leading_zeros(df=df_description_prep, column_names=["material_number"])
+df_description_prep = (
+    df_description_prep.withColumn("rn", f.row_number().over(window_makt)).filter("rn = 1").drop("rn", "spras")
+)
+
+df_gx_description = SparkDFDataset(df_description_prep, persist=False)
+
 df_iso_unit_factors = spark.createDataFrame(
     ISO_UNIT_FACTORS, "component_unit string, component_base_unit string, ISO_unit_factor double"
 )
@@ -701,7 +732,25 @@ df_transf = df_transf.withColumn(
 # COMMAND ----------
 
 # MAGIC %md
-# MAGIC ## Tr. 6 - Create ID column and put it first
+# MAGIC ## Tr. 6 - Descriptions of the AF and of the component
+
+# COMMAND ----------
+
+df_transf = df_transf.join(df_description_prep, ["material_number"], how="left")
+df_transf = df_transf.join(
+    df_description_prep.select(
+        f.col("material_number").alias("component_material_number"),
+        f.col("material_description").alias("component_description"),
+    ),
+    ["component_material_number"],
+    how="left",
+)
+log.info("Joined MAKT descriptions - key uniqueness checked in Quality Checks")
+
+# COMMAND ----------
+
+# MAGIC %md
+# MAGIC ## Tr. 7 - Create ID column and put it first
 
 # COMMAND ----------
 
@@ -726,6 +775,7 @@ OUTPUT_COLUMNS = [
     "snapshot_date",
     "plant",
     "material_number",
+    "material_description",
     "BOM_usage",
     "BOM_alternative",
     "BOM_number",
@@ -733,6 +783,7 @@ OUTPUT_COLUMNS = [
     "BOM_item_number",
     "BOM_item_category",
     "component_material_number",
+    "component_description",
     "component_quantity",
     "component_unit",
     "component_quantity_in_base_unit",
@@ -789,6 +840,7 @@ red_quality_check_results = [
         ["snapshot_date", "component_material_number", "component_unit"]
     ),
     df_gx_base_unit.expect_column_values_to_be_unique(column="component_material_number"),
+    df_gx_description.expect_column_values_to_be_unique(column="material_number"),
 ]
 
 gx_validation.validate_and_log_gx_results(
