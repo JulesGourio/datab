@@ -90,3 +90,19 @@ Prévision 2 « sans ajustements » : (a) sans rebut composant (code actuel, `es
 aussi ; (c) sans les modifications manuelles de l'OF (composants ajoutés, quantités changées) — alors ≈ Prévision 3.
 
 Vérifications Genie associées : RB1–RB4 (rebut), RA1–RA2 (ajustements) — texte dans la réponse du 2026-10-09.
+
+## Mise à jour après RB1–RB4 / RA1–RA2 (2026-10-09)
+
+- **R1 — réponse des données** : le rebut qui gonfle les réservations d'OF vient à 83 % du **rebut composant de la
+  fiche article** (MM02 MRP 4, `kausf`), à 17 % de saisies sur l'ordre, quasiment jamais du poste de BOM. Le rebut
+  d'ensemble n'est appliqué ni aux OF (AF : `gasmg` toujours 0) ni aux réservations des achetés. Question restante
+  au métier : le « +20 % » est-il le rebut composant de la fiche article (pris en compte) ou le rebut d'ensemble des
+  achetés (ignoré par SAP pour les OF) ?
+- **R2** : priorité abaissée 🟢 — les articles avec rebut achat ne sont pas surconsommés sur les OF (au contraire).
+- **R3 — simplifiée** : (b) sans objet (rebut d'ensemble jamais appliqué). Reste (a) « sans rebut composant » —
+  code actuel — ou (c) « sans modifications manuelles », que la Prévision 3 (BOM standard) couvre déjà.
+  Proposition : Prévision 2 = (a), à faire valider.
+- **M17 (nouveau) 🟠** : la visserie / fermetures achetées avec rebut d'ensemble est consommée sur les OF à 74 % de
+  la réservation (94 % pour les autres achetés). Pourquoi ? (sorties en libre-service ou sur centre de coût,
+  vrac, OF soldés sans sortie…) Ces composants ressortiront en « surstock » dans le rapport.
+

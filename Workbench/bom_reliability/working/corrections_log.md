@@ -192,3 +192,26 @@ Run en job, toutes usines, tout l'historique. Résultats des requêtes de contr�
   applique `ausss` à ses propres propositions d'achat, pas aux besoins des OF : ce rebut n'entre dans aucune des
   Prévisions 1/2/3. Rebut réellement porté par les BOM / OF : `ausch` (1 186 noeuds actifs), `kausf` (350
   articles), `ausss` des AF (219). → question métier : le « +20 % » est-il ce rebut côté achat ?
+
+## 2026-10-09 — Genie : rebuts (RB1–RB4) et ajustements des OF (RA1–RA2)
+
+- **RB1** : 32 173 articles achetés (`beskz = F`) avec `ausss > 0` → 287 385 lignes de réservation d'OF, `ausch = 0`
+  dans 100 % des cas. Le rebut d'ensemble d'un article acheté **n'atteint jamais les OF**. Les 27 804 lignes
+  `bdmng > esmng` (sans `ausch`) relèvent de l'arrondi SAP, pas d'un rebut.
+- **RB2 / RB3** (OF terminés en 2025, achetés) : consommation / réservation = **0,74** pour les articles avec
+  `ausss > 0`, **0,94** pour les autres. L'interprétation de Genie (« réservations gonflées par `ausss` ») est
+  contredite par RB1 : les réservations ne sont pas gonflées, ce sont ces articles (visserie, fermetures, type CA)
+  qui sont **moins consommés** sur les OF que réservé. Pas de surconsommation atelier = pas de rebut réel visible
+  côté OF. À expliquer (sorties hors OF ? vrac ? OF soldés sans sortie ?) → question M17.
+- **RB4** : origine du `ausch` des réservations (2,2 M lignes) : `MARC.KAUSF` 82,8 %, aucune correspondance 17,1 %
+  (modif. manuelle sur l'ordre, ou `kausf` qui a changé depuis — comparaison faite avec `marc_latest`), poste de
+  BOM 58 lignes. → le rebut qui gonfle réellement les OF est le **rebut composant de la fiche article** (cas 2).
+  La Gold A applique déjà la règle SAP (`ausch` du poste, sinon `kausf` historisé).
+- **RA1 (a)** : lignes d'OF ajoutées à la main (sans `stlnr`), OF terminés 2025 : 0,2 % (2400), 0,5 % (5000),
+  0,6 % (2110), 7,4 % (2300), 7,8 % (1000), 13,4 % (2010), 52,9 % (4030), 84,3 % (1900).
+- **RA1 (b)** : résultat non exploitable (BOM cherchée dans la dernière extraction au lieu de celle de la création de
+  l'OF → 50 % de BOM non trouvées). L'usine 4000 (0,1 % d'écart) montre que les quantités collent quand la BOM est
+  la bonne. L'écart quantités OF / BOM sera mesuré directement par le notebook C (Prévision 2 vs Prévision 3).
+- **RA2** : 82 OF terminés en 2025 dont l'AF a `ausss > 0` (jusqu'à 20 %) : `gasmg = 0` et `gamng` = quantité
+  planifiée dans 100 % des cas → le **rebut d'ensemble des AF n'est pas appliqué** aux OF chez Latécoère.
+  Cohérent avec C (rebut d'ensemble non ajouté à la Prévision 3).
