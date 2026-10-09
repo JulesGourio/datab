@@ -76,3 +76,17 @@ Chaque question indique **à qui la poser**, si elle **bloque**, et **ce que fai
 | L2 | **DAS + Test Definition** : qui les rédige ? (règle LEAP : pas de build sans eux) Qui valide les exemples de référence dans SAP (CS03, CO03, MB51) ? | 🔴 avant Bitbucket | Spec technique + exemples Genie seulement |
 | L3 | Nommage clé primaire / contrainte : `{table}_ID` et `gold_{table}_PK` confirmés ? | 🟢 | Oui (Confluence) |
 | L4 | Vue `_exposed` requise pour les deux tables Gold d'historique ? | 🟢 | Oui |
+
+## Détail R1 / R3 (2026-10-09)
+
+Exemple : AF « Porte », 10 vis par pièce, OF de 100. Le rebut peut être saisi à 4 endroits :
+1. poste de BOM (CS02, rebut composant) → l'OF réserve 1 100 vis ;
+2. fiche de la vis (MM02 MRP 4, rebut composant) → idem ;
+3. fiche de l'AF (rebut ensemble) → OF lancé pour 105, tous composants +5 % ;
+4. fiche de la vis (rebut ensemble) → **l'OF réserve 1 000**, seuls les achats sont gonflés (~32 000 articles achetés).
+Si la perte est réelle, le cas 4 fait ressortir le composant en « manquant ».
+
+Prévision 2 « sans ajustements » : (a) sans rebut composant (code actuel, `esmng`) ; (b) sans rebut d'ensemble
+aussi ; (c) sans les modifications manuelles de l'OF (composants ajoutés, quantités changées) — alors ≈ Prévision 3.
+
+Vérifications Genie associées : RB1–RB4 (rebut), RA1–RA2 (ajustements) — texte dans la réponse du 2026-10-09.
