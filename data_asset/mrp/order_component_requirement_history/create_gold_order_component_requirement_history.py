@@ -52,6 +52,8 @@
 # MAGIC   almost always come from different `extraction_timestamp` values (logged): a line closed in the newer one but
 # MAGIC   still open in the older one is kept as open (the open filter runs before the deduplication, to keep the
 # MAGIC   volume low). The gap is negligible; to be re-checked if SAP changes the extraction schedule.
+# MAGIC - `stlal` (BOM alternative) was not found in `plaf_stack` (lab run): it is then NULL and the use case falls back
+# MAGIC   on the lowest BOM alternative. To be confirmed with the SAP team (production version `verid` -> MKAL?).
 # MAGIC - `component_BOM_quantity` (`esmng`) is taken as the requirement without component scrap (checked on samples:
 # MAGIC   `bdmng` = `esmng` x (1 + `ausch`) rounded up). To be confirmed on planned orders (`SB`).
 # MAGIC - `order_scrap_quantity` of planned orders uses `plaf.avmng` (to be confirmed).
@@ -228,6 +230,15 @@ def month_starts(after_day, until_day):
     return result
 
 
+def add_missing_columns(df, table_name, column_names):
+    """Columns a stack does not carry in every extraction: NULL instead of a failure, with a warning."""
+    for column_name in column_names:
+        if column_name not in df.columns:
+            log.warning(f"{table_name} has no column {column_name}: filled with NULL")
+            df = df.withColumn(column_name, f.expr("try_cast(NULL AS STRING)"))
+    return df
+
+
 def list_partition_timestamps(table_name):
     """Extraction timestamps of a stack, read from the partition metadata (no data scan)."""
     rows = (
@@ -263,6 +274,9 @@ df_resb_raw = spark.read.table(f"{LANDING_ZONE_SCHEMA}.resb_stack")
 df_plaf_raw = spark.read.table(f"{LANDING_ZONE_SCHEMA}.plaf_stack")
 df_afko_raw = spark.read.table(f"{LANDING_ZONE_SCHEMA}.afko_stack")
 df_afpo_raw = spark.read.table(f"{LANDING_ZONE_SCHEMA}.afpo_stack")
+
+df_plaf_raw = add_missing_columns(df_plaf_raw, "plaf_stack", ["stlal"])
+df_afko_raw = add_missing_columns(df_afko_raw, "afko_stack", ["stlal"])
 
 # COMMAND ----------
 

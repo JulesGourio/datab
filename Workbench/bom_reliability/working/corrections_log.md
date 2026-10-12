@@ -252,3 +252,11 @@ Run en job, toutes usines, tout l'historique. Résultats des requêtes de contr�
 - **Code** : A et B reçoivent le paramètre `rebuild_mode` (`full` par défaut / `incremental` : seuls les snapshots
   absents de la table sont calculés et écrits par `replace_where`), la table est partitionnée par `snapshot_date`
   (la première exécution doit être en `full`). Non exécuté.
+
+## 2026-10-12 — Lab run B : `stlal` introuvable dans `plaf_stack`
+
+- Erreur `UNRESOLVED_COLUMN` sur `stlal` dans la préparation de PLAF (B). Le run de A est passé.
+- Correction : `add_missing_columns()` remplit `stlal` de PLAF et d'AFKO avec NULL (et `log.warning`) si le stack ne
+  le porte pas ; C prend alors la plus basse alternative de BOM pour les OP sans alternative.
+- À vérifier : `DESCRIBE prod_landingzone.sap_latecoere_ecc6.plaf_stack` (colonnes réelles, nom de l'alternative de
+  BOM) ; Genie avait annoncé `stlal` dans `plaf_latest`.

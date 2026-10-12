@@ -59,6 +59,8 @@
 # MAGIC - Use case number `ucTBD`, Proj schema `supply_chain` and the folder name are placeholders (JIRA EPIC to come).
 # MAGIC - Period grid limited to the two options of the request (P1 = 6 or 3 months, P2 = 3 months). Free choice of T1 / T2
 # MAGIC   (request bonus) is not delivered: it would need the consumption at day level.
+# MAGIC - A planned order without BOM alternative (`plaf_stack` has no `stlal` column) uses the lowest alternative of the
+# MAGIC   standard BOM (to be confirmed).
 # MAGIC - `consumption_3_quantity` not computed (inventory differences 701/702 are never posted on an OF).
 # MAGIC - Component price is the current budget standard price (`material_plant`), not the price at T0
 # MAGIC   (`material_plant_price_history_exposed` holds it per fiscal period).
@@ -653,7 +655,16 @@ df_forecast_mrp = df_forecast_wo.unionByName(df_forecast_po).select(
 
 # COMMAND ----------
 
+# An order without known BOM alternative at T0 (planned order) uses the lowest alternative of its article
+df_lowest_alternative = df_bom_prep.groupBy("T0_date", "plant", "material_number").agg(
+    f.min("BOM_alternative").alias("lowest_BOM_alternative")
+)
+
 df_forecast_bom = df_scope_in.join(
+    df_lowest_alternative, ["T0_date", "plant", "material_number"], how="left"
+).withColumn(
+    "BOM_alternative_T0", f.coalesce("BOM_alternative_T0", "lowest_BOM_alternative")
+).drop("lowest_BOM_alternative").join(
     df_bom_prep.withColumnRenamed("BOM_alternative", "BOM_alternative_T0"),
     ["T0_date", "plant", "material_number", "BOM_alternative_T0"],
     how="inner",
