@@ -56,7 +56,7 @@
 
 # MAGIC %md
 # MAGIC # Technical debt
-# MAGIC - `sys.path.insert(...)` in the standard imports cell is for lab runs only: remove it before the move to Bitbucket.
+# MAGIC - `sys.path.insert(...)` and the `persist` / `cache` patch in the standard imports cell are for lab runs only (serverless): remove them before the move to Bitbucket.
 # MAGIC - Use case number `ucTBD`, Proj schema `supply_chain` and the folder name are placeholders (JIRA EPIC to come).
 # MAGIC - Period grid limited to the two options of the request (P1 = 6 or 3 months, P2 = 3 months). Free choice of T1 / T2
 # MAGIC   (request bonus) is not delivered: it would need the consumption at day level.
@@ -96,6 +96,16 @@ from pyspark.sql.window import Window
 # Lab test runs only: leap_utils is read from a workspace folder. Remove before the move to Bitbucket,
 # where it is declared as a library of the job task.
 sys.path.insert(0, "/Workspace/Users/jules.gourio.external@latecoere.aero/dev_ict_FI_invoice")
+
+# Lab test runs on serverless compute only: persist / cache are not supported there and Great Expectations calls them.
+# Remove before the move to Bitbucket (job clusters support them).
+try:
+    from pyspark.sql.connect.dataframe import DataFrame as ConnectDataFrame
+
+    for method_name in ("persist", "cache", "unpersist"):
+        setattr(ConnectDataFrame, method_name, lambda self, *args, **kwargs: self)
+except ImportError:
+    pass
 
 # COMMAND ----------
 
