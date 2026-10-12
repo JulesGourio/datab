@@ -48,8 +48,8 @@
 # MAGIC - Landing zone stacks are read directly from Gold (no Bronze history table exists; the stacks are kept
 # MAGIC   indefinitely, so a full rebuild is always possible and `rebuild_mode = incremental` is only a cost optimisation).
 # MAGIC - `sap_number()` adds a trim to what `table_utils.transform_float_column()` does: to be merged into `leap_utils`.
-# MAGIC - The first run after the move to a partitioned table (`snapshot_date`) must use `rebuild_mode = full`. To be replaced if the
-# MAGIC   platform exposes Bronze `*_history` tables.
+# MAGIC - The first run after the move to a partitioned table (`snapshot_date`) must use `rebuild_mode = full`.
+# MAGIC - To be replaced if the platform exposes Bronze `*_history` tables.
 # MAGIC - `sap_number()`, `month_starts()` and `build_snapshot_mapping()` are also defined in
 # MAGIC   `create_gold_order_component_requirement_history`: move them to `leap_utils` before the Bitbucket PR
 # MAGIC   (`table_utils.transform_float_column` could replace `sap_number()` once its signature is confirmed).
