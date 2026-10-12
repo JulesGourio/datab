@@ -22,9 +22,9 @@ Chaque question indique **à qui la poser**, si elle **bloque**, et **ce que fai
 
 | # | Question | Niveau | Défaut actuel |
 |---|---|---|---|
-| P1 | **Depuis quand** voulez-vous mesurer ? Les données permettent : BOM depuis **mai 2023**, besoins MRP (OP/OF) depuis **octobre 2023**. Avec P1 = P2 = 3 mois, la première mesure complète porte sur T0 = oct. 2023 (OF terminés avant avril 2024). Avant : impossible. | 🔴 | Tout ce qui est disponible |
+| P1 | **Depuis quand** voulez-vous mesurer ? Les données permettent : BOM depuis **mai 2023**, besoins MRP (OP/OF) depuis **octobre 2023**. Avec P1 = 3 et P2 = 3 mois, la première mesure complète porte sur T0 = oct. 2023 (OF terminés avant avril 2024). Avant : impossible. | 🔴 | Tout ce qui est disponible |
 | P2 | **Fréquence de T0** : 1er de chaque mois, ou chaque semaine ? (Hebdo = T0 au plus près de la date choisie, mais ~4× plus de volume.) | 🔴 | Mensuel (1er du mois) |
-| P3 | **Choix de P1 / P2** dans le rapport : seulement 3 / 3 mois, ou une liste (1, 2, 3, 6 mois) ? Chaque combinaison multiplie la taille de la table Proj. | 🟠 | P1 = P2 = 3 mois uniquement |
+| P3 | ✅ résolu par la nouvelle expression de besoin : (P1, P2) = (6, 3) par défaut, (3, 3) en option. Variation libre de T1 / T2 = bonus non livré. | ✅ | — |
 | P4 | **Fréquence de rafraîchissement** du rapport (mensuel suffit ?) | 🟢 | Mensuel |
 
 ## 3. Rebuts — métier (méthodes / planification)
@@ -133,3 +133,9 @@ Vérifications Genie associées : RB1–RB4 (rebut), RA1–RA2 (ajustements) —
 - Historisation incrémentale : pistes Genie (full rebuild depuis les stacks / `replace_where` par `snapshot_date` /
   table Gold `_history_stack` alimentée chaque jour). Choix en attente de la rétention des stacks et de la signature
   réelle de `table_utils.save_table` (`replace_where`, `merge_schema`) — à lire dans le package, pas via Genie.
+
+
+## Mise à jour 2026-10-12 (expression de besoin v1 révisée)
+
+- Période par défaut P1 = 6, P2 = 3 ; option P1 = 3 (P3 résolu). Avec P1 = 6, la première mesure complète est T0 = oct. 2023, OF terminés avant juillet 2024.
+- Nouveaux points ouverts : source de la **division** (page 2), définition de **PF usage**, méthode de la **Conso 3**, famille / classe / code 0 ou L, besoin d'une tendance **hebdomadaire** (cas d'usage « d'une semaine à l'autre ») alors que les snapshots sont mensuels.

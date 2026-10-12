@@ -57,7 +57,8 @@
 # MAGIC %md
 # MAGIC # Technical debt
 # MAGIC - Use case number `ucTBD`, Proj schema `supply_chain` and the folder name are placeholders (JIRA EPIC to come).
-# MAGIC - Period grid limited to P1 = P2 = 3 months until the business confirms the other choices (volume).
+# MAGIC - Period grid limited to the two options of the request (P1 = 6 or 3 months, P2 = 3 months). Free choice of T1 / T2
+# MAGIC   (request bonus) is not delivered: it would need the consumption at day level.
 # MAGIC - `consumption_3_quantity` not computed (inventory differences 701/702 are never posted on an OF).
 # MAGIC - Component price is the current budget standard price (`material_plant`), not the price at T0
 # MAGIC   (`material_plant_price_history_exposed` holds it per fiscal period).
@@ -167,9 +168,11 @@ log = logger.setup_applevel_logger(log_level=logger.LOGGER_MAPPING[LOG_LEVEL])
 DOMAIN = "supply_chain"  # to be confirmed
 UC_PREFIX = "ucTBD"  # to be confirmed (JIRA EPIC)
 
-P1_MONTHS = [3]  # ignored period after T0 (business list to be confirmed: 1, 2, 3, 6)
+P1_MONTHS = [6, 3]  # ignored period after T0: default 6 months, second option 3 months
 P2_MONTHS = [3]  # analysed period after T1
-DEFAULT_T0_MONTHS_AGO = 6  # default T0 = first day of the month, 6 months ago; P1 = P2 = 3
+DEFAULT_P1_MONTHS = 6
+DEFAULT_P2_MONTHS = 3
+DEFAULT_T0_MONTHS_AGO = 9  # default T0 = first day of the month, 9 months ago: T2 = T0 + 6 + 3 months is today
 
 BOM_USAGE = "1"
 EXCLUDED_ITEM_CATEGORIES = ["D", "T"]  # document and text items: no material
@@ -281,7 +284,7 @@ for t0 in T0_DATES:
             t2 = add_months(t1, p2)
             if t2 <= today:
                 period_rows.append(
-                    (f"{t0:%Y%m%d}-{p1}-{p2}", t0, p1, p2, t1, t2, t0 == DEFAULT_T0 and p1 == 3 and p2 == 3)
+                    (f"{t0:%Y%m%d}-{p1}-{p2}", t0, p1, p2, t1, t2, t0 == DEFAULT_T0 and p1 == DEFAULT_P1_MONTHS and p2 == DEFAULT_P2_MONTHS)
                 )
 
 df_period = spark.createDataFrame(

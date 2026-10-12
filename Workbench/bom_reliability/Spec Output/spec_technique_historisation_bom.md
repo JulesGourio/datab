@@ -51,7 +51,7 @@ Légende : **[À VÉRIFIER]** = hypothèse sur la donnée, à confirmer par les 
 ### 1.1 Rappel du besoin métier
 
 Pour chaque AF (article fabriqué) : comparer la **prévision connue à T0** avec la **consommation des OF commencés
-après T1 et terminés avant T2** (T1 = T0 + P1, T2 = T1 + P2, T2 ≤ aujourd'hui ; défaut T0 = J−6 mois, P1 = P2 = 3 mois).
+après T1 et terminés avant T2** (T1 = T0 + P1, T2 = T1 + P2, T2 ≤ aujourd'hui ; défaut P1 = 6 mois, P2 = 3 mois, deuxième option P1 = 3 mois ; T0 par défaut = 1er du mois de J−9 mois, de sorte que T2 = aujourd'hui).
 
 | Mesure | Définition métier | Source de données | Historisation nécessaire ? |
 |---|---|---|---|
@@ -816,8 +816,8 @@ Une période = (T0, P1, P2). Le rapport permet de choisir T0/P1/P2 : on **préca
 par composant puis la moyenne ne se fait pas proprement en DAX DirectQuery) :
 - T0 = 1er de chaque mois depuis le début d'historique disponible ; P1, P2 ∈ {3} par défaut, liste étendue
   {1, 2, 3, 6} mois **[TBD : volumétrie vs besoin]** ;
-- garder seulement T2 = T0 + P1 + P2 ≤ date du run ; colonne `is_default_period` pour T0 = 1er du mois de J−6 mois,
-  P1 = P2 = 3.
+- garder seulement T2 = T0 + P1 + P2 ≤ date du run ; colonne `is_default_period` pour T0 = 1er du mois de J−9 mois,
+  P1 = 6, P2 = 3 (option P1 = 3 conservée dans la table).
 - Construite comme petite table (`spark.createDataFrame` d'une liste générée), jointe aux OF.
 
 ### 8.3 Périmètre OF et rattachement à la prévision T0
@@ -1114,7 +1114,7 @@ Voir `working/genie_questions_and_output_tests.md` §1.10 (lot 3 : G1–G10 + qu
 | Erreur | `|p − c| / max(p, c)`, 0 si les deux sont nuls, conso négative ramenée à 0 (flag `is_negative_consumption`) |
 | Statut | défaut P2/C2 : `OVERSTOCK` / `SHORTAGE` / `OK` |
 | Fiabilité | 1 − moyenne des erreurs composants (DAX `AVERAGE` par AF / CP / usine) |
-| Grille | T0 = snapshots communs à A et B, P1 = P2 = 3 mois, T2 ≤ aujourd'hui ; période par défaut = T0 du mois de J−6 mois |
+| Grille | T0 = snapshots communs à A et B, (P1, P2) = (6, 3) par défaut et (3, 3) en option, T2 ≤ aujourd'hui ; période par défaut = T0 du mois de J−9 mois |
 | Unités | Conso déjà en unité de base (G5) ; BOM convertie par MARM puis par facteurs ISO (IN→M, MM→M…, F9) |
 
 ### 14.4 Lancer en lab
@@ -1125,3 +1125,12 @@ Premier passage court : `snapshot_from_date = 2026-01-01` et `debug_plant = 2400
 `debug_plant`. Tests de sortie : `working/genie_questions_and_output_tests.md` §2 (adapter A2/A3/B2–B7 : plus
 d'intervalles, comparer chaque snapshot à l'extraction utilisée, visible dans `_BOM_extraction_timestamp` /
 `_RESB_extraction_timestamp`).
+
+
+## 15. Mise à jour de l'expression de besoin (2026-10-12)
+
+- Période : T1 = T0 + 6 mois et T2 = T1 + 3 mois par défaut ; seconde option T1 = T0 + 3 mois, T2 = T1 + 3 mois ; T2 jamais dans le futur. La variation libre de T1 / T2 reste un bonus non livré (snapshots mensuels).
+- Fiabilité par défaut : Prévision 2 contre Conso 2 ; optionnel Prévision 3 contre Conso 2. Page 2 : erreur par composant pour Prév. 2 / Conso 2, Prév. 2 / Conso 1, Prév. 1 / Conso 1, statut ok / surstock / manquant, prévisions 1-2-3, conso 1-2-3, unité, durée d'approvisionnement, prix, classification, « PF usage », nombre d'OF pertinents, description division et centre de profit.
+- Page 3 (optionnelle) : composants par poste de nomenclature, poste `9999` pour les composants issus d'un fantôme ; commentaires par poste.
+- Tendance « d'une semaine à l'autre » citée dans les cas d'usage : le pas des snapshots est mensuel pour l'instant (décision 2026-10-12).
+- Non couverts : colonne division (source à identifier), « PF usage » (définition à obtenir), Conso 3 (méthode TBD), famille / classe / code 0 ou L (TBD).
