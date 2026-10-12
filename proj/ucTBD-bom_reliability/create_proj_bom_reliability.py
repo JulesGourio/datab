@@ -56,6 +56,7 @@
 
 # MAGIC %md
 # MAGIC # Technical debt
+# MAGIC - `sys.path.insert(...)` in the standard imports cell is for lab runs only: remove it before the move to Bitbucket.
 # MAGIC - Use case number `ucTBD`, Proj schema `supply_chain` and the folder name are placeholders (JIRA EPIC to come).
 # MAGIC - Period grid limited to the two options of the request (P1 = 6 or 3 months, P2 = 3 months). Free choice of T1 / T2
 # MAGIC   (request bonus) is not delivered: it would need the consumption at day level.
@@ -85,11 +86,16 @@
 # COMMAND ----------
 
 import datetime
+import sys
 import time
 
 from pyspark.sql import functions as f
 from pyspark.sql.utils import AnalysisException
 from pyspark.sql.window import Window
+
+# Lab test runs only: leap_utils is read from a workspace folder. Remove before the move to Bitbucket,
+# where it is declared as a library of the job task.
+sys.path.insert(0, "/Workspace/Users/jules.gourio.external@latecoere.aero/dev_ict_FI_invoice")
 
 # COMMAND ----------
 
