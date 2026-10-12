@@ -125,3 +125,11 @@ Vérifications Genie associées : RB1–RB4 (rebut), RA1–RA2 (ajustements) —
 - M7 : la Gold ne porte pas de motif de mouvement ; il faudrait lire `grund` dans le bronze MSEG si le métier
   identifie la casse par un motif.
 - M17 : les 543 (sous-traitance) expliquent ~9 % de l'écart ; le reste est à expliquer par le métier.
+
+## Décisions 2026-10-12
+
+- Fréquence des photos : **mensuelle** pour l'instant (hebdomadaire plus tard si besoin).
+- Paramètre `debug_plant` : **conservé**.
+- Historisation incrémentale : pistes Genie (full rebuild depuis les stacks / `replace_where` par `snapshot_date` /
+  table Gold `_history_stack` alimentée chaque jour). Choix en attente de la rétention des stacks et de la signature
+  réelle de `table_utils.save_table` (`replace_where`, `merge_schema`) — à lire dans le package, pas via Genie.
