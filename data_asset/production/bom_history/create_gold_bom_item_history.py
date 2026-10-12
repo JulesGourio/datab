@@ -45,7 +45,10 @@
 
 # MAGIC %md
 # MAGIC # Technical debt
-# MAGIC - Landing zone stacks are read directly from Gold (no Bronze history table exists). To be replaced if the
+# MAGIC - Landing zone stacks are read directly from Gold (no Bronze history table exists; the stacks are kept
+# MAGIC   indefinitely, so a full rebuild is always possible and `rebuild_mode = incremental` is only a cost optimisation).
+# MAGIC - `sap_number()` adds a trim to what `table_utils.transform_float_column()` does: to be merged into `leap_utils`.
+# MAGIC - The first run after the move to a partitioned table (`snapshot_date`) must use `rebuild_mode = full`. To be replaced if the
 # MAGIC   platform exposes Bronze `*_history` tables.
 # MAGIC - `sap_number()`, `month_starts()` and `build_snapshot_mapping()` are also defined in
 # MAGIC   `create_gold_order_component_requirement_history`: move them to `leap_utils` before the Bitbucket PR
@@ -58,7 +61,7 @@
 # MAGIC   was not used: 37k BOM components are missing from it (lab run 2).
 # MAGIC - MARC / MARM (and PLAF / AFKO in the requirement history) contain a few repeated rows in some extractions
 # MAGIC   (e.g. article F5391312700300 / plant 1900 in the extraction used for 2023-05 and 2023-06):
-# MAGIC   `keep_latest_row()` keeps one. The repeat is inside the SAP extract file (identical values), not the ingestion.
+# MAGIC   `drop_duplicates_by_order()` keeps the latest ingested one. The repeat is inside the SAP extract file (identical values), not the ingestion.
 
 # COMMAND ----------
 
@@ -122,6 +125,8 @@ LAB_TARGET_SCHEMA = dbutils.widgets.get("lab_target_schema").strip()
 # MAGIC %md
 # MAGIC ### Debug Boolean
 # MAGIC `snapshot_from_date` (yyyy-MM-dd) and `debug_plant` shorten lab runs; both are empty in jobs.
+# MAGIC `rebuild_mode`: `full` rewrites every snapshot; `incremental` only adds the snapshot dates missing from the
+# MAGIC output table (a stack extraction never changes, so a past snapshot is never recomputed).
 
 # COMMAND ----------
 
@@ -141,6 +146,9 @@ SNAPSHOT_FROM_DATE = dbutils.widgets.get("snapshot_from_date").strip()
 dbutils.widgets.text("debug_plant", "")
 DEBUG_PLANT = dbutils.widgets.get("debug_plant").strip()
 
+dbutils.widgets.dropdown("rebuild_mode", defaultValue="full", choices=["full", "incremental"])
+REBUILD_MODE = dbutils.widgets.get("rebuild_mode")
+
 # COMMAND ----------
 
 # MAGIC %md
@@ -149,6 +157,29 @@ DEBUG_PLANT = dbutils.widgets.get("debug_plant").strip()
 # COMMAND ----------
 
 log = logger.setup_applevel_logger(log_level=logger.LOGGER_MAPPING[LOG_LEVEL])
+
+# COMMAND ----------
+
+# MAGIC %md
+# MAGIC ## Config Output Table
+# MAGIC Needed before the snapshot calendar: the incremental mode reads the snapshot dates already stored.
+
+# COMMAND ----------
+
+if LAB_TARGET_SCHEMA:
+    CATALOG, SCHEMA = LAB_TARGET_SCHEMA.split(".")
+else:
+    CATALOG = f"{PIPELINE_WRITE_ENV}_gold"
+    SCHEMA = "production"
+DESTINATION_TABLE = "bom_item_history"
+DESTINATION_TABLE_FULL_PATH = f"{CATALOG}.{SCHEMA}.{DESTINATION_TABLE}"
+
+INCREMENTAL_LOAD = REBUILD_MODE == "incremental" and table_utils.UnityCatalogCheckTableExists(
+    DESTINATION_TABLE_FULL_PATH
+)
+if INCREMENTAL_LOAD and DEBUG_PLANT:
+    raise ValueError("debug_plant restricts the data: it cannot be combined with rebuild_mode = incremental")
+log.info(f"Rebuild mode: {REBUILD_MODE}, incremental load: {INCREMENTAL_LOAD}")
 
 # COMMAND ----------
 
@@ -162,6 +193,7 @@ LANDING_ZONE_SCHEMA = f"{REFERENCE_READ_ENV}_landingzone.sap_latecoere_ecc6"
 BOM_CATEGORY = "M"  # stlty: material BOM (K = costing BOM shares stlnr values with M)
 BOM_USAGES = ["1"]  # stlan: production (99.97 % of MAST links)
 PHANTOM_SPECIAL_PROCUREMENT = "50"  # MARC.sobsl of a phantom assembly
+LATEST_ROW_ORDER = ["_ingestion_timestamp", "_stack_row_id"]  # a source extraction can repeat a row
 FULL_EXTRACTION = "FULL"  # MARC/MARM also contain partial DELTA extractions
 
 # Same-dimension conversions SAP does through T006 (no MARM record): (from_unit, base_unit, factor)
@@ -187,7 +219,6 @@ ISO_UNIT_FACTORS = [
 # MAGIC - `sap_number`: SAP text number -> double. SAP writes negatives with a trailing minus (`1.000-`) and pads with
 # MAGIC   spaces; a bare cast would return NULL or fail.
 # MAGIC - `sap_flag`: SAP indicator `'X'` -> `True`, anything else -> `False`.
-# MAGIC - `keep_latest_row`: one row per key when a source extraction repeats a row.
 # MAGIC - `month_starts` / `build_snapshot_mapping`: the snapshot calendar (first day of each month) and, for each
 # MAGIC   snapshot date, the latest extraction strictly before it.
 
@@ -233,16 +264,6 @@ def build_snapshot_mapping(extraction_timestamps, snapshot_dates, backdate_first
             rows.append((snapshot_date, min(extraction_timestamps), True))
     return spark.createDataFrame(
         rows, "snapshot_date date, extraction_timestamp timestamp, _is_backdated boolean"
-    )
-
-
-def keep_latest_row(df, key_columns):
-    """One row per key, the most recently ingested one: a source extraction can repeat a row."""
-    window = Window.partitionBy(*key_columns).orderBy(f.desc("_ingestion_timestamp"), f.desc("_stack_row_id"))
-    return (
-        df.withColumn("rn", f.row_number().over(window))
-        .filter("rn = 1")
-        .drop("rn", "_ingestion_timestamp", "_stack_row_id")
     )
 
 
@@ -338,6 +359,14 @@ if SNAPSHOT_FROM_DATE:
         datetime.date.fromisoformat(SNAPSHOT_FROM_DATE) - datetime.timedelta(days=1),
     )
 SNAPSHOT_DATES = month_starts(first_snapshot_after, datetime.date.today())
+if INCREMENTAL_LOAD:
+    stored_snapshot_dates = {
+        r["snapshot_date"] for r in spark.read.table(DESTINATION_TABLE_FULL_PATH).select("snapshot_date").distinct().collect()
+    }
+    SNAPSHOT_DATES = [d for d in SNAPSHOT_DATES if d not in stored_snapshot_dates]
+    if not SNAPSHOT_DATES:
+        log.info("No new snapshot date to load")
+        dbutils.notebook.exit("No new snapshot date to load")
 log.info(f"{len(SNAPSHOT_DATES)} snapshot dates, from {SNAPSHOT_DATES[0]} to {SNAPSHOT_DATES[-1]}")
 
 df_map_stpo = build_snapshot_mapping(stpo_timestamps, SNAPSHOT_DATES)
@@ -549,7 +578,9 @@ df_marc_prep = (
 )
 
 df_marc_prep = table_utils.remove_leading_zeros(df=df_marc_prep, column_names=["material_number"])
-df_marc_prep = keep_latest_row(df_marc_prep, ["snapshot_date", "material_number", "plant"])
+df_marc_prep = table_utils.drop_duplicates_by_order(
+    df=df_marc_prep, columns=["snapshot_date", "material_number", "plant"], order_col=LATEST_ROW_ORDER, keep="last"
+).drop(*LATEST_ROW_ORDER)
 
 df_gx_marc = SparkDFDataset(df_marc_prep, persist=False)
 
@@ -597,7 +628,9 @@ df_marm_prep = (
 )
 
 df_marm_prep = table_utils.remove_leading_zeros(df=df_marm_prep, column_names=["component_material_number"])
-df_marm_prep = keep_latest_row(df_marm_prep, ["snapshot_date", "component_material_number", "component_unit"])
+df_marm_prep = table_utils.drop_duplicates_by_order(
+    df=df_marm_prep, columns=["snapshot_date", "component_material_number", "component_unit"], order_col=LATEST_ROW_ORDER, keep="last"
+).drop(*LATEST_ROW_ORDER)
 
 df_gx_marm = SparkDFDataset(df_marm_prep, persist=False)
 
@@ -887,26 +920,30 @@ gx_validation.validate_and_log_gx_results(
 
 # COMMAND ----------
 
-if LAB_TARGET_SCHEMA:
-    CATALOG, SCHEMA = LAB_TARGET_SCHEMA.split(".")
-else:
-    CATALOG = f"{PIPELINE_WRITE_ENV}_gold"
-    SCHEMA = "production"
-DESTINATION_TABLE = "bom_item_history"
-DESTINATION_TABLE_FULL_PATH = f"{CATALOG}.{SCHEMA}.{DESTINATION_TABLE}"
-
-# COMMAND ----------
-
 spark.sql(f"CREATE DATABASE IF NOT EXISTS {CATALOG}.{SCHEMA}")
 
 try:
     startTime = time.time()
-    result = table_utils.save_table(
-        dest_table=DESTINATION_TABLE_FULL_PATH,
-        df=df_transf,
-        mode="overwrite",
-        overwrite_schema=True,
-    )
+    if INCREMENTAL_LOAD:
+        result = table_utils.save_table(
+            dest_table=DESTINATION_TABLE_FULL_PATH,
+            df=df_transf,
+            mode="overwrite",
+            overwrite_schema=False,
+            partition_col="snapshot_date",
+            merge_schema=True,
+            replace_where="snapshot_date IN ({})".format(
+                ", ".join(f"DATE'{d.isoformat()}'" for d in SNAPSHOT_DATES)
+            ),
+        )
+    else:
+        result = table_utils.save_table(
+            dest_table=DESTINATION_TABLE_FULL_PATH,
+            df=df_transf,
+            mode="overwrite",
+            overwrite_schema=True,
+            partition_col="snapshot_date",
+        )
 except AnalysisException as e:
     log.error(
         f"Table {DESTINATION_TABLE_FULL_PATH} has not been created, an error occured during saveAsTable. \nError is {e}"

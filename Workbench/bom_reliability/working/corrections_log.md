@@ -232,3 +232,23 @@ Run en job, toutes usines, tout l'historique. Résultats des requêtes de contr�
 - **GQ4** : pas de motif de mouvement (`grund`) dans `part_movement_exposed` (seulement `Storage_location` /
   `Item_text`) → la casse n'est pas identifiable depuis la Gold. Conso 2 = 261/262 (M7 reste ouvert).
 - À faire : relancer A (puis B, C) en lab avec les mêmes paramètres de job.
+
+## 2026-10-12 — Résultats Genie / SQL : RESB, rétention, `leap_utils`
+
+- **Familles RESB (juillet–octobre 2026)** : chaque jour a les deux familles `ACT` (~43 M lignes) et `NOACT`
+  (~33–36 M lignes), jamais une seule. Leurs `extraction_timestamp` diffèrent de 1 à 2 secondes (quelques minutes le
+  dimanche) : les deux familles viennent donc presque toujours de deux timestamps voisins. La sélection par famille
+  de B est adaptée. Avant juillet 2026 : non vérifié.
+- **Première partition** : `resb_stack` 2023-09-17, `stpo_stack` et `stko_stack` 2023-04-23, `stas_stack` et
+  `mast_stack` 2024-06-11. Donc B ne démarre qu'au snapshot 2023-10-01, A au 2023-05-01.
+- **Rétention** : les stacks ne sont jamais purgées (seulement `COPY INTO` et `VACUUM`, 1 185 extractions RESB, 1,73 To).
+  La reconstruction complète est toujours possible ; l'incrémental n'est qu'une optimisation de coût.
+- **`work_order_operation_history_stack`** : fenêtre glissante de 90 jours, alimentée depuis Bronze `_latest` : ne
+  convient pas à un historique 2023→. `sap_work_order_basics_history_stacked` (Silver) est un append infini.
+- **Source `leap_utils` lue** : `create_table_view(src, dest, select_statement, replace_view)` fait seulement
+  `CREATE [OR REPLACE] VIEW dest AS (SELECT <select_statement> FROM src)` (le masquage des colonnes `_` est fait par
+  l'appelant) ; `save_table(..., partition_col, merge_schema, replace_where)` existe ; `drop_duplicates_by_order`
+  remplace `keep_latest_row` (A et B).
+- **Code** : A et B reçoivent le paramètre `rebuild_mode` (`full` par défaut / `incremental` : seuls les snapshots
+  absents de la table sont calculés et écrits par `replace_where`), la table est partitionnée par `snapshot_date`
+  (la première exécution doit être en `full`). Non exécuté.
