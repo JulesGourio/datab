@@ -561,9 +561,12 @@ df_plant_prep = df_plant_raw.select(
     f.col("Plant").alias("plant"), f.col("Plant_Description").alias("plant_description")
 ).dropDuplicates(["plant"])
 
-df_profit_center_prep = df_profit_center_raw.select(
-    f.col("Profit_Center").alias("profit_center"),
-    f.col("Short_Description").alias("profit_center_description"),
+df_profit_center_prep = table_utils.remove_leading_zeros(
+    df=df_profit_center_raw.select(
+        f.col("Profit_Center").alias("profit_center"),
+        f.col("Short_Description").alias("profit_center_description"),
+    ),
+    column_names=["profit_center"],
 ).dropDuplicates(["profit_center"])
 
 df_gx_material = SparkDFDataset(df_material_prep, persist=False)

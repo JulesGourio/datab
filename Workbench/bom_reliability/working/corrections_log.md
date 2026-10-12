@@ -259,3 +259,19 @@ Run en job, toutes usines, tout l'historique. Résultats des requêtes de contr�
 - `DESCRIBE plaf_stack` : l'alternative de BOM s'appelle **`stalt`** dans PLAF (`stlal` n'existe que dans AFKO).
   Genie s'était trompé sur `plaf_latest`. B lit `stalt` pour les ordres planifiés.
 - C garde un repli : un ordre sans alternative connue à T0 prend la plus basse alternative de la BOM standard.
+
+## 2026-10-12 — Lab run de C (serverless, usine 2400, T0 2025-01 → 2026-04)
+
+- Correctif serverless : `persist` / `cache` neutralisés dans une cellule réservée au lab (GX les appelle).
+- Tables : `ucTBD_bom_reliability_component` 326 888 lignes (348 s d'écriture), `ucTBD_bom_reliability_work_order`
+  303 118 lignes (16 s). 0 doublon de clé sur les deux.
+- 30 périodes (P1 = 6 : T0 2025-01 → 2026-01 ; P1 = 3 : T0 2025-01 → 2026-04). Période par défaut `20260101-6-3` :
+  11 222 composants, fiabilité 88,6 %. Fiabilité des autres périodes entre 85 % et 90 %.
+- Statuts (période par défaut) : OK 6 389, SHORTAGE 2 844, OVERSTOCK 1 989.
+- Totaux (période par défaut) : Prév. 1 = 2 802 886, Prév. 2 = 2 585 721, Conso 1 = Conso 2 = 2 577 722.
+  L'écart Prév. 2 / conso est de 0,3 % au total.
+- Sources de prévision à T0 (ordres de la période par défaut) : 5 271 ordres planifiés (OP), 2 ordres de fabrication
+  (OF), 4 191 sans prévision (44 % hors périmètre de fiabilité). Quasi tous les OF viennent d'un OP à T0.
+- Anomalie : `profit_center_description` vide partout sauf pour `98M` : `profit_center_exposed` garde les zéros de tête
+  des centres numériques (`0000000100`). Correction : `remove_leading_zeros` avant la jointure.
+- 12 lignes sans `material_description` (AF) : à investiguer.
