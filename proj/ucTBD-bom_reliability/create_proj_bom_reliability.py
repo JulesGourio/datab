@@ -59,7 +59,7 @@
 # MAGIC - Use case number `ucTBD`, Proj schema `supply_chain` and the folder name are placeholders (JIRA EPIC to come).
 # MAGIC - Period grid limited to the two options of the request (P1 = 6 or 3 months, P2 = 3 months). Free choice of T1 / T2
 # MAGIC   (request bonus) is not delivered: it would need the consumption at day level.
-# MAGIC - A planned order without BOM alternative (`plaf_stack` has no `stlal` column) uses the lowest alternative of the
+# MAGIC - An order without BOM alternative at T0 (blank `stalt` on a planned order) uses the lowest alternative of the
 # MAGIC   standard BOM (to be confirmed).
 # MAGIC - `consumption_3_quantity` not computed (inventory differences 701/702 are never posted on an OF).
 # MAGIC - Component price is the current budget standard price (`material_plant`), not the price at T0

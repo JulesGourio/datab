@@ -256,7 +256,6 @@ Run en job, toutes usines, tout l'historique. Résultats des requêtes de contr�
 ## 2026-10-12 — Lab run B : `stlal` introuvable dans `plaf_stack`
 
 - Erreur `UNRESOLVED_COLUMN` sur `stlal` dans la préparation de PLAF (B). Le run de A est passé.
-- Correction : `add_missing_columns()` remplit `stlal` de PLAF et d'AFKO avec NULL (et `log.warning`) si le stack ne
-  le porte pas ; C prend alors la plus basse alternative de BOM pour les OP sans alternative.
-- À vérifier : `DESCRIBE prod_landingzone.sap_latecoere_ecc6.plaf_stack` (colonnes réelles, nom de l'alternative de
-  BOM) ; Genie avait annoncé `stlal` dans `plaf_latest`.
+- `DESCRIBE plaf_stack` : l'alternative de BOM s'appelle **`stalt`** dans PLAF (`stlal` n'existe que dans AFKO).
+  Genie s'était trompé sur `plaf_latest`. B lit `stalt` pour les ordres planifiés.
+- C garde un repli : un ordre sans alternative connue à T0 prend la plus basse alternative de la BOM standard.
