@@ -125,24 +125,63 @@ from great_expectations.dataset import SparkDFDataset
 
 # COMMAND ----------
 
+# Values already typed in the widgets are kept when this cell is run again (removeAll resets them).
+WIDGET_NAMES = [
+    "pipeline_write_env",
+    "pipeline_read_env",
+    "reference_read_env",
+    "by_pass_quality_checks",
+    "lab_target_schema",
+    "debug",
+    "log_level",
+    "snapshot_from_date",
+    "debug_plant",
+    "rebuild_mode",
+]
+PREVIOUS_WIDGET_VALUES = {}
+for widget_name in WIDGET_NAMES:
+    try:
+        PREVIOUS_WIDGET_VALUES[widget_name] = dbutils.widgets.get(widget_name)
+    except Exception:
+        pass
+
 dbutils.widgets.removeAll()  # must be the first widget call
 
-dbutils.widgets.text("pipeline_write_env", "dev")
+dbutils.widgets.text("pipeline_write_env", PREVIOUS_WIDGET_VALUES.get("pipeline_write_env", "dev"))
 PIPELINE_WRITE_ENV = dbutils.widgets.get("pipeline_write_env")
 
-dbutils.widgets.text("pipeline_read_env", "dev")
+dbutils.widgets.text("pipeline_read_env", PREVIOUS_WIDGET_VALUES.get("pipeline_read_env", "dev"))
 PIPELINE_READ_ENV = dbutils.widgets.get("pipeline_read_env")
 
-dbutils.widgets.text("reference_read_env", "prod")
+dbutils.widgets.text("reference_read_env", PREVIOUS_WIDGET_VALUES.get("reference_read_env", "prod"))
 REFERENCE_READ_ENV = dbutils.widgets.get("reference_read_env")
 
-dbutils.widgets.text("by_pass_quality_checks", "false")
+dbutils.widgets.text("by_pass_quality_checks", PREVIOUS_WIDGET_VALUES.get("by_pass_quality_checks", "false"))
 BYPASS_QUALITY_CHECKS = dbutils.widgets.get("by_pass_quality_checks").lower() == "true"
 
 # Lab test runs only: "<catalog>.<schema>" of the lab redirects every table this notebook writes.
 # Always empty in jobs; never commit a non-empty default (hardcoded env = Convention Checker BLOCKER).
-dbutils.widgets.text("lab_target_schema", "")
+dbutils.widgets.text("lab_target_schema", PREVIOUS_WIDGET_VALUES.get("lab_target_schema", ""))
 LAB_TARGET_SCHEMA = dbutils.widgets.get("lab_target_schema").strip()
+
+# All widgets are created in this cell so that none disappears when it is run again.
+dbutils.widgets.text("debug", PREVIOUS_WIDGET_VALUES.get("debug", "False"))
+
+dbutils.widgets.dropdown(
+    "log_level",
+    defaultValue=PREVIOUS_WIDGET_VALUES.get("log_level", "info"),
+    choices=["debug", "info", "warning", "error", "critical"],
+)
+
+dbutils.widgets.text("snapshot_from_date", PREVIOUS_WIDGET_VALUES.get("snapshot_from_date", ""))
+
+dbutils.widgets.text("debug_plant", PREVIOUS_WIDGET_VALUES.get("debug_plant", ""))
+
+dbutils.widgets.dropdown(
+    "rebuild_mode",
+    defaultValue=PREVIOUS_WIDGET_VALUES.get("rebuild_mode", "full"),
+    choices=["full", "incremental"],
+)
 
 # COMMAND ----------
 
@@ -154,23 +193,14 @@ LAB_TARGET_SCHEMA = dbutils.widgets.get("lab_target_schema").strip()
 
 # COMMAND ----------
 
-dbutils.widgets.text("debug", "False")
 DEBUG = dbutils.widgets.get("debug").lower() == "true"
 
-dbutils.widgets.dropdown(
-    "log_level",
-    defaultValue="info",
-    choices=["debug", "info", "warning", "error", "critical"],
-)
 LOG_LEVEL = dbutils.widgets.get("log_level")
 
-dbutils.widgets.text("snapshot_from_date", "")
 SNAPSHOT_FROM_DATE = dbutils.widgets.get("snapshot_from_date").strip()
 
-dbutils.widgets.text("debug_plant", "")
 DEBUG_PLANT = dbutils.widgets.get("debug_plant").strip()
 
-dbutils.widgets.dropdown("rebuild_mode", defaultValue="full", choices=["full", "incremental"])
 REBUILD_MODE = dbutils.widgets.get("rebuild_mode")
 
 # COMMAND ----------

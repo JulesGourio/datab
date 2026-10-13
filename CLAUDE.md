@@ -176,6 +176,10 @@ LOG_LEVEL = dbutils.widgets.get("log_level")
 log = logger.setup_applevel_logger(log_level=logger.LOGGER_MAPPING[LOG_LEVEL])
 ```
 
+Interactive runs: create **all** widgets in the one widget cell (the `### Debug Boolean` cell only reads them) and read the
+values already typed (`dbutils.widgets.get` in a `try`) before `removeAll()`, to pass them as defaults. Otherwise
+re-running the cell resets the values and the widgets of a second cell disappear.
+
 | What is read | Variable |
 |---|---|
 | Bronze tables, SAP header tables | `REFERENCE_READ_ENV` |

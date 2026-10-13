@@ -65,7 +65,7 @@ dbutils.library.restartPython()
 # MAGIC %md
 # MAGIC # Technical debt
 # MAGIC - Lab runs only, to remove before the move to Bitbucket: the `%pip install great_expectations` cell and its restart (the job task declares the library), `sys.path.insert(...)` (`leap_utils`) and the `persist` / `cache` patch (serverless) in the standard imports cell.
-# MAGIC - Proj schema `supply_chain` and the folder name are placeholders to confirm (use case number 93).
+# MAGIC - The folder name `uc093-bom_reliability` is to be confirmed against the sibling use cases (use case number 93).
 # MAGIC - Period grid limited to the two options of the request (P1 = 6 or 3 months, P2 = 3 months). Free choice of T1 / T2
 # MAGIC   (request bonus) is not delivered: it would need the consumption at day level.
 # MAGIC - An order without BOM alternative at T0 (blank `stalt` on a planned order) uses the lowest alternative of the
@@ -134,25 +134,54 @@ from great_expectations.dataset import SparkDFDataset
 
 # COMMAND ----------
 
+# Values already typed in the widgets are kept when this cell is run again (removeAll resets them).
+WIDGET_NAMES = [
+    "pipeline_write_env",
+    "pipeline_read_env",
+    "reference_read_env",
+    "by_pass_quality_checks",
+    "lab_target_schema",
+    "debug",
+    "log_level",
+    "debug_plant",
+]
+PREVIOUS_WIDGET_VALUES = {}
+for widget_name in WIDGET_NAMES:
+    try:
+        PREVIOUS_WIDGET_VALUES[widget_name] = dbutils.widgets.get(widget_name)
+    except Exception:
+        pass
+
 dbutils.widgets.removeAll()  # must be the first widget call
 
-dbutils.widgets.text("pipeline_write_env", "dev")
+dbutils.widgets.text("pipeline_write_env", PREVIOUS_WIDGET_VALUES.get("pipeline_write_env", "dev"))
 PIPELINE_WRITE_ENV = dbutils.widgets.get("pipeline_write_env")
 
-dbutils.widgets.text("pipeline_read_env", "dev")
+dbutils.widgets.text("pipeline_read_env", PREVIOUS_WIDGET_VALUES.get("pipeline_read_env", "dev"))
 PIPELINE_READ_ENV = dbutils.widgets.get("pipeline_read_env")
 
-dbutils.widgets.text("reference_read_env", "prod")
+dbutils.widgets.text("reference_read_env", PREVIOUS_WIDGET_VALUES.get("reference_read_env", "prod"))
 REFERENCE_READ_ENV = dbutils.widgets.get("reference_read_env")
 
-dbutils.widgets.text("by_pass_quality_checks", "false")
+dbutils.widgets.text("by_pass_quality_checks", PREVIOUS_WIDGET_VALUES.get("by_pass_quality_checks", "false"))
 BYPASS_QUALITY_CHECKS = dbutils.widgets.get("by_pass_quality_checks").lower() == "true"
 
 # Lab test runs only: "<catalog>.<schema>" of the lab redirects every table this notebook writes,
 # and the two Gold history tables of this project are then read from the same schema.
 # Always empty in jobs; never commit a non-empty default (hardcoded env = Convention Checker BLOCKER).
-dbutils.widgets.text("lab_target_schema", "")
+dbutils.widgets.text("lab_target_schema", PREVIOUS_WIDGET_VALUES.get("lab_target_schema", ""))
 LAB_TARGET_SCHEMA = dbutils.widgets.get("lab_target_schema").strip()
+
+# All widgets are created in this cell so that none disappears when it is run again.
+dbutils.widgets.text("debug", PREVIOUS_WIDGET_VALUES.get("debug", "False"))
+
+dbutils.widgets.dropdown(
+    "log_level",
+    defaultValue=PREVIOUS_WIDGET_VALUES.get("log_level", "info"),
+    choices=["debug", "info", "warning", "error", "critical"],
+)
+
+dbutils.widgets.text("debug_plant", PREVIOUS_WIDGET_VALUES.get("debug_plant", ""))
 
 # COMMAND ----------
 
@@ -162,17 +191,10 @@ LAB_TARGET_SCHEMA = dbutils.widgets.get("lab_target_schema").strip()
 
 # COMMAND ----------
 
-dbutils.widgets.text("debug", "False")
 DEBUG = dbutils.widgets.get("debug").lower() == "true"
 
-dbutils.widgets.dropdown(
-    "log_level",
-    defaultValue="info",
-    choices=["debug", "info", "warning", "error", "critical"],
-)
 LOG_LEVEL = dbutils.widgets.get("log_level")
 
-dbutils.widgets.text("debug_plant", "")
 DEBUG_PLANT = dbutils.widgets.get("debug_plant").strip()
 
 # COMMAND ----------
@@ -191,7 +213,7 @@ log = logger.setup_applevel_logger(log_level=logger.LOGGER_MAPPING[LOG_LEVEL])
 
 # COMMAND ----------
 
-DOMAIN = "supply_chain"  # to be confirmed
+DOMAIN = "supply_chain"
 UC_PREFIX = "uc093"  # use case 93
 
 P1_MONTHS = [6, 3]  # ignored period after T0: default 6 months, second option 3 months
