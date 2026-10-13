@@ -12,7 +12,7 @@ Chaque question indique **à qui la poser**, si elle **bloque**, et **ce que fai
 | H2 | Lire les stacks de la **landing zone directement depuis un notebook Gold** est-il accepté par l'équipe LEAP, ou faut-il créer des tables bronze `*_history` ? | 🔴 | Lecture directe, déclarée en dette technique |
 | H3 | `resb_stack` : deux familles de fichiers `SAP-RESB-F-ACT` / `SAP-RESB-F-NOACT` (GQ1). Les deux familles ont-elles toujours le même `extraction_timestamp` ? | 🟢 | B prend la dernière extraction de chaque famille avant chaque 1er du mois et les unit |
 | H4 | Les extractions MARC / MARM contiennent des **lignes en double** dans le même fichier SAP (ex. article F5391312700300, usine 1900). Connu ? À corriger à la source ? | 🟢 | Une seule ligne gardée (valeurs identiques) |
-| H5 | Peut-on **réutiliser ou étendre** le job existant `W_3_SAP_AS_Design_BOM_DataAsset` (`prod_silver.production.bom`) plutôt qu'un nouvel actif ? Qui en est propriétaire ? | 🟠 | Nouvel actif Gold indépendant |
+| H5 | Peut-on **réutiliser ou étendre** le job existant `W_3_SAP_AS_Design_BOM_DataAsset` (id `1007135342276807` selon les notes, à confirmer) qui produit `prod_silver.production.bom` et `prod_gold.production.bom` ? Qui en est propriétaire ? | 🟠 | Nouvel actif Gold indépendant, à aligner sur la Silver officielle (spec §8) |
 | H6 | Composants absents de `material_exposed` = articles obsolètes / remplacés (GQ2) | ✅ résolu | Unité de base `mara_latest`, descriptions `makt_latest` (FR puis EN) dans A ; C retombe sur ces descriptions |
 | H7 | Avant juin 2024, MAST / STAS n'existent pas en stack : on réutilise leur première extraction (juin 2024). Acceptable ? | 🟢 | Oui, flag `_is_backdated_link` |
 | H8 | Service principal `job-runner-sa-*` : a-t-il le droit de lire `prod_landingzone` ? | 🔴 pour la prod | Job lab lancé à votre nom |
@@ -139,3 +139,31 @@ Vérifications Genie associées : RB1–RB4 (rebut), RA1–RA2 (ajustements) —
 
 - Période par défaut P1 = 6, P2 = 3 ; option P1 = 3 (P3 résolu). Avec P1 = 6, la première mesure complète est T0 = oct. 2023, OF terminés avant juillet 2024.
 - Nouveaux points ouverts : source de la **division** (page 2), définition de **PF usage**, méthode de la **Conso 3**, famille / classe / code 0 ou L, besoin d'une tendance **hebdomadaire** (cas d'usage « d'une semaine à l'autre ») alors que les snapshots sont mensuels.
+
+## Mise à jour 2026-10-13 (revue de la Silver officielle)
+
+| # | Question | Niveau | Défaut actuel |
+|---|---|---|---|
+| S1 | Aligner notre A sur la BOM Silver officielle (exclusions STKO `02`/vide, MAST `cslty = X`, MAST sans usine), ou garder nos règles ? Voir spec §8 et §9 (D1–D3). | 🔴 avant Bitbucket | Nos règles (validité résolue, pas de filtre statut) |
+| S2 | Les 691 lignes Silver à clé NULL sont-elles les liens MAST sans usine (80 liens) ? Requête de contrôle en spec §8.2. | 🟠 | Non vérifié |
+| S3 | L'écart de lignes entre notre A (3 688 354 au 2026-10-01) et la Silver (3 230 287 au 2026-10-13) : à mesurer à date égale. | 🟠 | Non expliqué |
+| S4 | Sémantique de `quantity` dans `bom_exposed` (pondéré par probabilité / unité de base) : documenter et exposer aussi le brut ? | 🟠 | Non documenté |
+| S5 | Job `W_3_SAP_AS_Design_BOM_DataAsset` : YAML reçu le 2026-10-13. Paramètres `pipeline_read_env`, `pipeline_write_env`, `reference_read_env` = **prod** (donc la Silver et la Gold écrivent en prod). Pas de bloc `schedule` dans le YAML : planning à confirmer (UI Databricks ou job appelant). | 🟠 | Résolu pour l'environnement ; planning ouvert |
+| S6 | `udf` non importé dans `create_gold_material_master_data_plant` : la version déployée est-elle identique au fichier uploadé ? | 🟠 | Non vérifié |
+| S7 | Nommage `BOM` (majuscules) de la Silver et de la Gold officielles, contre CLAUDE.md §8 (snake_case). | 🟢 | Non modifié (hors de notre périmètre) |
+
+## Mise à jour 2026-10-13 (requêtes de contrôle)
+
+| # | Statut |
+|---|---|
+| S2 | ✅ résolu : les 691 lignes à clé NULL ont `plant` NULL |
+| S3 | 🟠 ouvert : la table lab ne contient plus le run complet (63 702 lignes au 2026-10-01). Refaire le run complet avant de comparer. |
+| S5 | 🟠 : environnement `prod` confirmé ; planification absente du YAML, à confirmer dans l'UI |
+| S8 (nouveau) | 🔴 Sens du statut BOM `12` (97 238 lignes dans la Silver). Exclure comme `02`, ou garder ? |
+| S9 (nouveau) | 🟠 Faut-il exclure `cslty = X` et les liens MAST sans usine dans notre A pour aligner sur la Silver ? (D2 / D3 de la spec) |
+
+## Décision 2026-10-13
+
+- Statut BOM : A applique la règle de la Silver (`02` et vide exclus, avant le choix de la dernière version). Le statut `12`
+  est **gardé** comme dans la Silver. **Question ouverte au métier** : que signifie le statut `12` (97 238 lignes) ?
+- `cslty = X` et lignes MAST sans usine : **pas encore alignés** (question S9 ouverte).

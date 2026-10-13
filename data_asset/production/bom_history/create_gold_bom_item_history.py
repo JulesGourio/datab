@@ -54,8 +54,15 @@ dbutils.library.restartPython()
 # MAGIC %md
 # MAGIC # Technical debt
 # MAGIC - Lab runs only, to remove before the move to Bitbucket: the `%pip install great_expectations` cell and its restart (the job task declares the library), `sys.path.insert(...)` (`leap_utils`) and the `persist` / `cache` patch (serverless) in the standard imports cell.
-# MAGIC - Landing zone stacks are read directly from Gold (no Bronze history table exists; the stacks are kept
-# MAGIC   indefinitely, so a full rebuild is always possible and `rebuild_mode = incremental` is only a cost optimisation).
+# MAGIC - `sys.path.insert(...)` in the standard imports cell is for lab runs only: remove it before the move to Bitbucket.
+# MAGIC - Landing zone stacks (`{REFERENCE_READ_ENV}_landingzone`) are read directly, not Bronze: Bronze `*_latest` keeps
+# MAGIC   one snapshot only. The stacks are kept indefinitely, so a full rebuild is always possible and
+# MAGIC   `rebuild_mode = incremental` is only a cost optimisation.
+# MAGIC - Status rule aligned with the official Silver `prod_silver.production.bom`: STKO status `02` and blank are excluded
+# MAGIC   before the latest-version choice (`EXCLUDED_BOM_STATUS`). Status `12` (97 238 lines in the Silver) is kept,
+# MAGIC   its meaning is an open question. Still not aligned: MAST `cslty = X` (excluded by the Silver, kept here) and
+# MAGIC   MAST rows without plant (kept by the Silver, excluded here). Decision to take before the move to Bitbucket,
+# MAGIC   see spec §8 and §9 (D2, D3).
 # MAGIC - `sap_number()` adds a trim to what `table_utils.transform_float_column()` does: to be merged into `leap_utils`.
 # MAGIC - The first run after the move to a partitioned table (`snapshot_date`) must use `rebuild_mode = full`.
 # MAGIC - To be replaced if the platform exposes Bronze `*_history` tables.
@@ -225,7 +232,10 @@ if LAB_TARGET_SCHEMA:
 else:
     CATALOG = f"{PIPELINE_WRITE_ENV}_gold"
     SCHEMA = "production"
-DESTINATION_TABLE = "bom_item_history"
+# A debug run (debug_plant or snapshot_from_date) holds a subset of the data: it writes to a separate table,
+# so that it can never overwrite the full history in the default table.
+DEBUG_RUN = bool(DEBUG_PLANT or SNAPSHOT_FROM_DATE)
+DESTINATION_TABLE = "bom_item_history_debug" if DEBUG_RUN else "bom_item_history"
 DESTINATION_TABLE_FULL_PATH = f"{CATALOG}.{SCHEMA}.{DESTINATION_TABLE}"
 
 INCREMENTAL_LOAD = REBUILD_MODE == "incremental" and table_utils.UnityCatalogCheckTableExists(
@@ -249,6 +259,8 @@ BOM_USAGES = ["1"]  # stlan: production (99.97 % of MAST links)
 PHANTOM_SPECIAL_PROCUREMENT = "50"  # MARC.sobsl of a phantom assembly
 LATEST_ROW_ORDER = ["_ingestion_timestamp", "_stack_row_id"]  # a source extraction can repeat a row
 FULL_EXTRACTION = "FULL"  # MARC/MARM also contain partial DELTA extractions
+# STKO status excluded as in the official Silver (locked / blank). Status "12" is kept: meaning to be confirmed.
+EXCLUDED_BOM_STATUS = ["02", ""]
 
 # Same-dimension conversions SAP does through T006 (no MARM record): (from_unit, base_unit, factor)
 ISO_UNIT_FACTORS = [
@@ -556,6 +568,7 @@ df_stko_prep = (
     select_extractions(df_stko_raw, df_map_stko)
     .filter(f.trim("stlty") == BOM_CATEGORY)
     .select(*STKO_COLUMNS)
+    .filter(~f.col("BOM_status").isin(EXCLUDED_BOM_STATUS))
     .filter(f.coalesce(f.col("header_valid_from_date") < f.col("snapshot_date"), f.lit(True)))
     .withColumn("rn", f.row_number().over(window_stko))
     .filter("rn = 1")

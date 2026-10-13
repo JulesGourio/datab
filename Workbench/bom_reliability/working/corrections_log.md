@@ -279,3 +279,67 @@ Run en job, toutes usines, tout l'historique. Résultats des requêtes de contr�
 ## 2026-10-13 — Numéro de use case
 
 - Use case 93 : tables `uc093_bom_reliability_component` et `uc093_bom_reliability_work_order`, dossier `proj/uc093-bom_reliability`. Les tables `ucTBD_…` du lab sont obsolètes (à supprimer).
+## 2026-10-13 — Revue complète : lineage officiel, Silver, corrections de la v4
+
+Source : fichiers Silver / Gold / material master uploadés, sorties `DESCRIBE` / `SHOW TABLES`, requêtes de contrôle.
+Spec remise à jour en v5 (ancienne version dans `Spec Output/archive/`).
+
+- **Nom du job Silver** : `W_3_SAP_AS_Design_BOM_DataAsset` (YAML du 2026-10-13). L'entrée précédente « W_0 » était fausse ;
+  l'id `1007135342276807` vient des notes et n'apparaît pas dans le YAML (à confirmer).
+- **Gold officielle existante** : `prod_gold.production.bom` (3 230 287 lignes, `business_id` unique), vue `bom_exposed`
+  (22 colonnes). Les notes précédentes ne la mentionnaient pas.
+- **`bom_qc`** : produite par le job `W_0_uc27-business_data_consistency` (474119062548779), pas par le notebook Gold.
+  Les tables `production.bom`, `bom_exposed`, `bom_qc` existent toutes les trois.
+- **Nombre de colonnes** : Silver ≈ 214 et Gold ≈ 216 (comptage manuel sur le `DESCRIBE`). Les chiffres 170 (Genie)
+  et 186 (notes précédentes) sont faux ou anciens. À confirmer par `information_schema.columns`.
+- **Header STPO** : le nom réel est `header_sap_business_stpo` (sans « s »). `headers_sap_business_stpo` n'existe pas ;
+  la requête qui l'utilisait était fausse, pas la prod.
+- **Silver : colonnes de validité présentes** (`STKO_datuv`, `STKO_stkoz`, `STAS_datuv`, `STAS_stasz`, `STPO_datuv`,
+  `STPO_aennr`, `STPO_vgknt`, `STPO_lkenz`). `STAS_lkenz` **absent** : la suppression est consommée par la logique
+  `cancel` puis retirée.
+- **Silver : types** : `quantity`, `quantity_base` en double ; `STPO_ausch`, `STPO_netau`, `STPO_fmeng`, `probability` en
+  string. `probability` non numérique pour les postes alternatifs : **0 cas** sur 190 634 → pas de risque sur la formule
+  Gold.
+- **Gold : sémantique de `quantity`** : `menge × probability/100 (si alternative_item = X) ÷ quantity_base`. Ce n'est pas
+  la quantité brute. Notre A garde le brut (`component_quantity`) : à documenter dans `bom_exposed` et dans Proj.
+- **Gold : même nombre de lignes que la Silver** (3 230 287) : les jointures sur le référentiel ne créent ni ne suppriment
+  de lignes.
+- **Doublons Silver : hypothèse abandonnée.** L'écart 3 230 287 − 3 229 596 = 691 vient de `count(DISTINCT …)`, qui ignore
+  les lignes dont une colonne de la clé est NULL. La requête des groupes dupliqués n'a rien renvoyé, ce qui est cohérent.
+  Hypothèse à confirmer : les 80 liens MAST sans usine multipliés par leurs postes (requête `count_if … IS NULL`, spec §8.2).
+- **Règles de la Silver différentes de notre A** (spec §8) : statut STKO `02` et vide exclus ; `cslty = X` exclu ; usine
+  MAST NULL gardée ; STAS sans dernier-par-nœud ; STKO dédoublonné par `creation_date`. Non alignées : décision D1 à D3.
+- **Écart de lignes avec notre A** (3 688 354 au 2026-10-01 contre 3 230 287 au 2026-10-13) : **non expliqué**. Les dates
+  diffèrent ; à mesurer sur la même date.
+- **Code** : suppression de l'affirmation « stacks lues depuis Gold » dans les en-têtes A et B (lecture de la landing
+  zone). Ajout d'une dette : écart de règles avec la Silver officielle (A).
+- **Référentiel** : `material_master_data_plant` existe en Silver (`marc_latest` + `mbew_latest`) et en Gold (job
+  `W_2_SAP_Master_Data_Material_Plant_Asset`, 1117849829825817). `material_plant` est un autre actif (job
+  `D_2_SAP_Master_Data_Material_Plant-Asset`, 639869952897627).
+- **Gold material master, point de risque** : la table relit sa propre sortie précédente pour combler les nulls de
+  `PF_pourcentage_affectation` (auto-dépendance). Premier run à traiter à part.
+- **Gold material master, hardcodé** : environnements en dur (`prod_gold…`, `prod_bronze…`) dans le notebook ; à
+  remplacer par `REFERENCE_READ_ENV` avant Bitbucket. Le notebook silver a aussi des `print()` et un `raise Exception()`.
+- **Gold material master, `udf`** : utilisé sans import dans le notebook (`compute_global_PF_affectation`). À vérifier
+  contre la version déployée.
+- **Lineage Genie** : corrigé sur 8 points (voir spec §11).
+
+## 2026-10-13 — Résultats des requêtes de contrôle et correction de la table de lab
+
+- **Silver : 691 lignes à clé NULL = 691 lignes à `plant` NULL** (les autres colonnes de clé : 0). Confirmé. Cause : liens MAST
+  sans usine, gardés par la Silver, exclus par notre A.
+- **Silver : statuts BOM** : `01` 3 132 352 ; `12` 97 238 ; `07` 532 ; `14` 108 ; `21` 19 ; `03` 38 ; aucun `02` ni vide. Sens du
+  statut `12` inconnu.
+- **Colonnes** : `prod_silver.production.bom` = 214, `prod_gold.production.bom` = 216, `bom_exposed` = 22, `bom_qc` = 51
+  (22 exposées + 14 paires `quality_check_N` / `errors_N` + `errors_name`), `bill_of_material` = 23 (schéma différent).
+- **Job** : YAML reçu. Nom `W_3_SAP_AS_Design_BOM_DataAsset`, paramètres `prod` pour lecture et écriture, pas de bloc `schedule`.
+- **Table de lab : régression constatée.** `dev_lab.lab_jules.bom_item_history` contient 63 702 lignes au 2026-10-01 contre
+  3 688 354 dans le run 2. Cause : un run de debug (`debug_plant`) en mode `full` réécrit toute la table (`mode = overwrite`).
+  **Correction de code** : les runs de debug écrivent dans `*_debug` (A, B, C). Le run complet est à refaire.
+
+## 2026-10-13 — Alignement du statut BOM sur la Silver (notebook A)
+
+- A exclut désormais les STKO de statut `02` et vide, avant le choix de la dernière version (`EXCLUDED_BOM_STATUS`).
+  Règle identique à `as_design_BOM_bronze_to_silver`. Statut `12` gardé (sens à confirmer).
+- Non aligné : `cslty = X` et lignes MAST sans usine (questions S9).
+- Lab : run complet à refaire pour que les chiffres de A reflètent cette règle.
