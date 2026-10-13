@@ -536,8 +536,9 @@ pour laquelle le notebook d'historique (A) expose ces informations séparément 
 - Produite par le job `W_0_uc27-business_data_consistency` (474119062548779), **pas** par le notebook Gold.
 - Lit `BOM_exposed`.
 - Existe en prod (`SHOW TABLES` du 2026-10-13).
-- Colonnes : **non vérifiées** (le lineage Genie annonce `BOM_exposed` + 14 paires `quality_check_N` / `errors_N` + `errors_name`,
-  non confirmé). Commande à lancer : `DESCRIBE TABLE prod_gold.production.bom_qc`.
+- Colonnes (51, vérifiées par `DESCRIBE` du 2026-10-13) : les 22 colonnes de `BOM_exposed`, puis
+  `quality_check_1` / `errors_1` … `quality_check_14` / `errors_14` (chaque paire de type `string`), puis `errors_name`.
+  Le nom `bom_qc` n'est donc pas une copie de la BOM : c'est la vue exposée enrichie des résultats de contrôle.
 
 ---
 
@@ -568,7 +569,7 @@ pas utilisé par la BOM.
 | Supply Chain | `dev_proj.supply_chain.current_average_bom`, `dev_lab.supply_chain.average_bom`, `average_bom_multilevel` | `BOM_exposed` | dev / lab |
 | QC | `prod_gold.production.bom_qc` | `BOM_exposed` | prod |
 | Disaster recovery | `dr_prod_gold.production.bom` | table `BOM` | prod |
-| Finance | `prod_gold.finance.bill_of_material` (23 colonnes) | source [À CONFIRMER] | prod |
+| Finance | `prod_gold.finance.bill_of_material` (23 colonnes : `phase`, `product`, `month`, `divi`, `material`, `bom_quantity`, `lev`, `procu`, `skill`, …) | source [À CONFIRMER] ; **aucune colonne `BOM_number` ni `node` : ce n'est pas la même BOM au niveau des colonnes** | prod |
 
 Conséquence : `BOM_exposed` est le **contrat** de lecture. Changer ses 22 colonnes casse les consommateurs listés.
 
@@ -620,8 +621,10 @@ Le détail est dans `spec_technique_historisation_bom.md` §8. Résumé :
 | STKO | dernier `creation_date` | dernier `datuv`, puis `stkoz` |
 | Quantité | pondérée (Gold) | brute + quantité de base |
 
-Lignes à clé NULL dans la Silver : **691** (écart entre `count(*)` et `count(DISTINCT …)`). Hypothèse : liens MAST sans usine
-× leurs postes. À confirmer avec la requête du §8.2 de la spec.
+Lignes à clé NULL dans la Silver : **691**, toutes avec `plant` NULL (confirmé le 2026-10-13). Ce sont des liens MAST sans
+usine, gardés par la Silver et exclus par notre A.
+
+Statuts BOM dans la Silver : `01` 3 132 352 ; `12` 97 238 (sens inconnu) ; `07` 532 ; `14` 108 ; `21` 19 ; `03` 38 ; aucun `02`.
 
 ---
 

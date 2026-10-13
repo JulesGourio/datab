@@ -151,3 +151,13 @@ Vérifications Genie associées : RB1–RB4 (rebut), RA1–RA2 (ajustements) —
 | S5 | Job `W_3_SAP_AS_Design_BOM_DataAsset` : YAML reçu le 2026-10-13. Paramètres `pipeline_read_env`, `pipeline_write_env`, `reference_read_env` = **prod** (donc la Silver et la Gold écrivent en prod). Pas de bloc `schedule` dans le YAML : planning à confirmer (UI Databricks ou job appelant). | 🟠 | Résolu pour l'environnement ; planning ouvert |
 | S6 | `udf` non importé dans `create_gold_material_master_data_plant` : la version déployée est-elle identique au fichier uploadé ? | 🟠 | Non vérifié |
 | S7 | Nommage `BOM` (majuscules) de la Silver et de la Gold officielles, contre CLAUDE.md §8 (snake_case). | 🟢 | Non modifié (hors de notre périmètre) |
+
+## Mise à jour 2026-10-13 (requêtes de contrôle)
+
+| # | Statut |
+|---|---|
+| S2 | ✅ résolu : les 691 lignes à clé NULL ont `plant` NULL |
+| S3 | 🟠 ouvert : la table lab ne contient plus le run complet (63 702 lignes au 2026-10-01). Refaire le run complet avant de comparer. |
+| S5 | 🟠 : environnement `prod` confirmé ; planification absente du YAML, à confirmer dans l'UI |
+| S8 (nouveau) | 🔴 Sens du statut BOM `12` (97 238 lignes dans la Silver). Exclure comme `02`, ou garder ? |
+| S9 (nouveau) | 🟠 Faut-il exclure `cslty = X` et les liens MAST sans usine dans notre A pour aligner sur la Silver ? (D2 / D3 de la spec) |

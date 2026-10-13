@@ -174,7 +174,10 @@ if LAB_TARGET_SCHEMA:
 else:
     CATALOG = f"{PIPELINE_WRITE_ENV}_gold"
     SCHEMA = "mrp"
-DESTINATION_TABLE = "order_component_requirement_history"
+# A debug run (debug_plant or snapshot_from_date) holds a subset of the data: it writes to a separate table,
+# so that it can never overwrite the full history in the default table.
+DEBUG_RUN = bool(DEBUG_PLANT or SNAPSHOT_FROM_DATE)
+DESTINATION_TABLE = "order_component_requirement_history_debug" if DEBUG_RUN else "order_component_requirement_history"
 DESTINATION_TABLE_FULL_PATH = f"{CATALOG}.{SCHEMA}.{DESTINATION_TABLE}"
 
 INCREMENTAL_LOAD = REBUILD_MODE == "incremental" and table_utils.UnityCatalogCheckTableExists(

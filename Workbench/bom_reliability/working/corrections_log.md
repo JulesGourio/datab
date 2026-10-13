@@ -320,3 +320,16 @@ Spec remise à jour en v5 (ancienne version dans `Spec Output/archive/`).
 - **Gold material master, `udf`** : utilisé sans import dans le notebook (`compute_global_PF_affectation`). À vérifier
   contre la version déployée.
 - **Lineage Genie** : corrigé sur 8 points (voir spec §11).
+
+## 2026-10-13 — Résultats des requêtes de contrôle et correction de la table de lab
+
+- **Silver : 691 lignes à clé NULL = 691 lignes à `plant` NULL** (les autres colonnes de clé : 0). Confirmé. Cause : liens MAST
+  sans usine, gardés par la Silver, exclus par notre A.
+- **Silver : statuts BOM** : `01` 3 132 352 ; `12` 97 238 ; `07` 532 ; `14` 108 ; `21` 19 ; `03` 38 ; aucun `02` ni vide. Sens du
+  statut `12` inconnu.
+- **Colonnes** : `prod_silver.production.bom` = 214, `prod_gold.production.bom` = 216, `bom_exposed` = 22, `bom_qc` = 51
+  (22 exposées + 14 paires `quality_check_N` / `errors_N` + `errors_name`), `bill_of_material` = 23 (schéma différent).
+- **Job** : YAML reçu. Nom `W_3_SAP_AS_Design_BOM_DataAsset`, paramètres `prod` pour lecture et écriture, pas de bloc `schedule`.
+- **Table de lab : régression constatée.** `dev_lab.lab_jules.bom_item_history` contient 63 702 lignes au 2026-10-01 contre
+  3 688 354 dans le run 2. Cause : un run de debug (`debug_plant`) en mode `full` réécrit toute la table (`mode = overwrite`).
+  **Correction de code** : les runs de debug écrivent dans `*_debug` (A, B, C). Le run complet est à refaire.

@@ -1071,9 +1071,11 @@ else:
     CATALOG = f"{PIPELINE_WRITE_ENV}_proj"
     SCHEMA = DOMAIN
 
+# A debug run (debug_plant) holds a subset of the data: it writes to *_debug tables, never to the full ones.
+DEBUG_SUFFIX = "_debug" if DEBUG_PLANT else ""
 OUTPUTS = [
-    (f"{UC_PREFIX}_bom_reliability_component", df_transf),
-    (f"{UC_PREFIX}_bom_reliability_work_order", df_work_order_out),
+    (f"{UC_PREFIX}_bom_reliability_component{DEBUG_SUFFIX}", df_transf),
+    (f"{UC_PREFIX}_bom_reliability_work_order{DEBUG_SUFFIX}", df_work_order_out),
 ]
 
 # COMMAND ----------

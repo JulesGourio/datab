@@ -438,11 +438,29 @@ SELECT BOM_status, count(*) FROM prod_silver.production.bom GROUP BY BOM_status;
 
 ---
 
+### 8.3 Constats complémentaires (2026-10-13)
+
+- **Les 691 lignes à clé NULL sont toutes des lignes à `plant` NULL** : `plant_null = 691`, les autres colonnes de clé = 0.
+  Cause : liens MAST sans usine (`werks` vide), gardés par la Silver et exclus par notre A. L'hypothèse de doublons est retirée.
+- **Statuts BOM dans la Silver** (3 230 287 lignes) : `01` = 3 132 352 ; `12` = 97 238 ; `07` = 532 ; `14` = 108 ; `21` = 19 ;
+  `03` = 38. Aucun `02` ni vide : la Silver les exclut. **Le sens du statut `12` (97 238 lignes, 3 %) n'est pas connu** : à
+  demander au métier avant de décider si notre A l'exclut.
+- **Lab : la table `dev_lab.lab_jules.bom_item_history` ne contient plus le run complet.** Au 2026-10-01 elle compte
+  63 702 lignes, contre 3 688 354 dans le run 2 du 2026-10-07. Un run de debug (`debug_plant`) en mode `full` a réécrit toute la
+  table. Corrigé dans le code (§8.4). Le chiffre de 3 688 354 n'est plus reproductible tant qu'un run complet n'a pas été refait.
+
+### 8.4 Correction du code : les runs de debug n'écrasent plus la table complète
+
+Avant : `debug_plant` ou `snapshot_from_date` en `rebuild_mode = full` écrivaient la table principale avec `mode = overwrite`,
+donc un sous-ensemble remplaçait tout l'historique. Après : un run de debug écrit dans `bom_item_history_debug`
+(A), `order_component_requirement_history_debug` (B) et `ucTBD_bom_reliability_component_debug` / `…_work_order_debug` (C).
+La table principale n'est écrite que par un run sans filtre de debug.
+
 ## 9. Décisions ouvertes
 
 | # | Décision | Options | Recommandation | Qui |
 |---|---|---|---|---|
-| D1 | Rapport avec la BOM officielle | (a) notre A séparée, alignée sur la Silver ; (b) dimension `snapshot_date` dans la Gold officielle ; (c) rebut et quantité de base ajoutés à `bom_exposed` | **(a)** : pas de rupture de contrat pour RFQ, Supply Chain, DR | Équipe LEAP + chef de projet |
+| D1 | Rapport avec la BOM officielle | (a) notre A séparée, alignée sur la Silver ; (b) dimension `snapshot_date` dans la Gold officielle ; (c) rebut et quantité de base ajoutés à `bom_exposed` | **(a)** : voir §9.1 | Équipe LEAP + chef de projet |
 | D2 | Filtre statut `02` et `cslty = X` | les appliquer dans A (aligner) ou les garder (plus complet) | à décider après mesure (#3, #4) | Métier + data |
 | D3 | MAST sans usine (80 liens) | les garder (comme la Silver) ou les exclure | à décider après mesure (§8.1) | Data |
 | D4 | Sémantique de `quantity` pour Proj | brut (A) ou pondéré (Gold) | brut dans A, pondération faite dans C | Équipe Proj |
@@ -452,6 +470,18 @@ SELECT BOM_status, count(*) FROM prod_silver.production.bom GROUP BY BOM_status;
 | D8 | Conso 3, Prévision 3 avec ou sans rebut | voir `questions_ouvertes.md` (M8, R4) | inchangé | Métier |
 
 ---
+
+### 9.1 Pourquoi séparer (D1 = a)
+
+| Option | Avantages | Inconvénients |
+|---|---|---|
+| (a) table séparée, alignée sur la Silver | aucun changement de contrat pour les 6 consommateurs ; développement et tests en lab sans risque pour la prod ; nous contrôlons notre grain (snapshot) | logique dupliquée : deux sources de vérité à maintenir |
+| (b) `snapshot_date` dans la Gold officielle | une seule table | la table officielle passe de 3,2 M à ≈ 140 M lignes (42 snapshots) ; change la clé et les consommateurs (RFQ, Supply Chain, DR) ; touche un job prod qui écrase tout en `overwrite` |
+| (c) colonnes ajoutées à `bom_exposed` | faible impact | la vue reste sans historique ; ne résout pas le besoin de date |
+
+Décision : **(a)**. Garde-fous à mettre en place : (1) réconcilier le dernier snapshot de A avec la Silver après application
+des mêmes filtres, et lister chaque écart ; (2) documenter le grain et les règles différentes (§8) ; (3) ne jamais écrire un run de
+debug dans la table principale (§8.4).
 
 ## 10. Conformité LEAP (CLAUDE.md §16)
 
