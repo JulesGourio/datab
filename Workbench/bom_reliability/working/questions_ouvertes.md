@@ -167,3 +167,7 @@ Vérifications Genie associées : RB1–RB4 (rebut), RA1–RA2 (ajustements) —
 - Statut BOM : A applique la règle de la Silver (`02` et vide exclus, avant le choix de la dernière version). Le statut `12`
   est **gardé** comme dans la Silver. **Question ouverte au métier** : que signifie le statut `12` (97 238 lignes) ?
 - `cslty = X` et lignes MAST sans usine : **pas encore alignés** (question S9 ouverte).
+
+## Renvoi 2026-10-13
+
+La liste complète des questions métier, OP/OF et architecture (spec v2) est dans `questions_metier_et_architecture.md`.
