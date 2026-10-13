@@ -46,8 +46,13 @@
 # MAGIC %md
 # MAGIC # Technical debt
 # MAGIC - `sys.path.insert(...)` in the standard imports cell is for lab runs only: remove it before the move to Bitbucket.
-# MAGIC - Landing zone stacks are read directly from Gold (no Bronze history table exists; the stacks are kept
-# MAGIC   indefinitely, so a full rebuild is always possible and `rebuild_mode = incremental` is only a cost optimisation).
+# MAGIC - Landing zone stacks (`{REFERENCE_READ_ENV}_landingzone`) are read directly, not Bronze: Bronze `*_latest` keeps
+# MAGIC   one snapshot only. The stacks are kept indefinitely, so a full rebuild is always possible and
+# MAGIC   `rebuild_mode = incremental` is only a cost optimisation.
+# MAGIC - Not aligned with the official Silver `prod_silver.production.bom` yet: that table excludes STKO status `02` and
+# MAGIC   blank, MAST `cslty = X`, and MAST rows without plant, and keeps every non-cancelled STAS row (no latest-per-node
+# MAGIC   rule). This notebook applies the validity rules instead. Each difference is listed in the spec §8 and must be
+# MAGIC   decided before the move to Bitbucket.
 # MAGIC - `sap_number()` adds a trim to what `table_utils.transform_float_column()` does: to be merged into `leap_utils`.
 # MAGIC - The first run after the move to a partitioned table (`snapshot_date`) must use `rebuild_mode = full`.
 # MAGIC - To be replaced if the platform exposes Bronze `*_history` tables.
