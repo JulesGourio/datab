@@ -281,8 +281,8 @@ Run en job, toutes usines, tout l'historique. Résultats des requêtes de contr�
 Source : fichiers Silver / Gold / material master uploadés, sorties `DESCRIBE` / `SHOW TABLES`, requêtes de contrôle.
 Spec remise à jour en v5 (ancienne version dans `Spec Output/archive/`).
 
-- **Nom du job Silver** : `W_0_AS_Design_BOM_DataAsset` (id `1007135342276807`). Les notes précédentes disaient
-  `W_3_SAP_AS_Design_BOM_DataAsset` : même id, nom corrigé.
+- **Nom du job Silver** : `W_3_SAP_AS_Design_BOM_DataAsset` (YAML du 2026-10-13). L'entrée précédente « W_0 » était fausse ;
+  l'id `1007135342276807` vient des notes et n'apparaît pas dans le YAML (à confirmer).
 - **Gold officielle existante** : `prod_gold.production.bom` (3 230 287 lignes, `business_id` unique), vue `bom_exposed`
   (22 colonnes). Les notes précédentes ne la mentionnaient pas.
 - **`bom_qc`** : produite par le job `W_0_uc27-business_data_consistency` (474119062548779), pas par le notebook Gold.

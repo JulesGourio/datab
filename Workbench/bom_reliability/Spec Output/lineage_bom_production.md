@@ -27,7 +27,7 @@ BRONZE         {env}_bronze.sap_latecoere_ecc6
    mast_latest · stko_latest · stas_latest · stpo_latest  (TABLES, un snapshot)
    mast_stack … stpo_stack (VIEWS vers la landing zone, constat Genie [À CONFIRMER])
    │
-   │ job W_0_AS_Design_BOM_DataAsset (id 1007135342276807), task create_BOM_silver
+   │ job W_3_SAP_AS_Design_BOM_DataAsset (id 1007135342276807 selon les notes), task create_BOM_silver
    │ notebook as_design_BOM_bronze_to_silver
    ▼
 SILVER         {env}_silver.production.BOM          ~214 colonnes · 3 230 287 lignes (2026-10-13)
@@ -55,7 +55,7 @@ Consommateurs (lecture de BOM_exposed sauf mention) :
 
 | Élément | Valeur | Source |
 |---|---|---|
-| Job | `W_0_AS_Design_BOM_DataAsset` | confirmé par l'utilisateur (nom) |
+| Job | `W_3_SAP_AS_Design_BOM_DataAsset` | YAML reçu le 2026-10-13 |
 | Id du job | `1007135342276807` | confirmé (Genie et utilisateur) |
 | Tasks | `create_BOM_silver` puis `create_BOM_gold` | Genie, cohérent avec les notebooks |
 | Notebook Silver | `data_asset/production/as_design_bom/as_design_BOM_bronze_to_silver.py` | repo |
@@ -66,7 +66,26 @@ Consommateurs (lecture de BOM_exposed sauf mention) :
 | Autre référentiel | `material_plant` : job `D_2_SAP_Master_Data_Material_Plant-Asset` (639869952897627), notebooks `create_silver_material_plant` et `create_gold_material_plant`, V2 dans `material_plant_V2/` | utilisateur |
 | Job qualité | `W_0_uc27-business_data_consistency` (474119062548779), lit `BOM_exposed`, produit `bom_qc` | utilisateur |
 | Fichier de configuration du bundle | `databricks.yml` et `resources/*.yml` à la racine de `leap-dbx-repository` | [À CONFIRMER] (non lu) |
-| Planning du job | hebdomadaire, dimanche vers 01h | journal de session [À CONFIRMER dans le JSON du job] |
+| Planning du job | **absent du YAML** (pas de bloc `schedule`) | hebdomadaire selon une note de Genie [À CONFIRMER dans l'UI Databricks] |
+
+### 2.1 Configuration du job (YAML reçu le 2026-10-13)
+
+| Élément | Valeur |
+|---|---|
+| Nom | `W_3_SAP_AS_Design_BOM_DataAsset` |
+| Tasks | `create_BOM_silver` (notebook `data_asset/production/as_design_bom/as_design_BOM_bronze_to_silver`) puis `create_BOM_gold` (notebook `…/as_design_BOM_silver_to_gold`, `depends_on` la Silver) |
+| Source du code | `source: GIT`, dépôt `leap-dbx-repository` (Bitbucket), branche **`main`** |
+| Paramètres par défaut | `pipeline_read_env = prod`, `pipeline_write_env = prod`, `reference_read_env = prod` |
+| Conséquence | la Silver écrit dans `prod_silver` et la Gold dans `prod_gold`, avec lecture de la Silver en `prod` |
+| Cluster | un cluster de job (`Job_cluster`), Spark 15.4, mode `singleNode`, `r6id.2xlarge`, `SINGLE_USER`, `runtime_engine = STANDARD`, `num_workers = 0` |
+| Politique | cluster à politique (`cluster-policy: M`, `ResourceClass: SingleNode`) |
+| Tags | `activity-type = prod-job`, `data-asset-domain = production`, `job-purpose = data-asset` |
+| Notifications | échec → `LEAP_Databricks_Alert@latecoere.aero` et un contact du projet |
+| File d'attente | activée (`queue.enabled = true`) |
+| Identité d'exécution | service principal (identifiant non reproduit ici) |
+| Planification | **aucun bloc `schedule` dans le YAML** : déclenchement à confirmer (UI ou job appelant) |
+
+Les paramètres du job priment sur les valeurs par défaut des widgets : en prod, les notebooks lisent et écrivent tous en `prod`.
 
 Paramètres de chaque notebook (widgets) : `pipeline_write_env` (défaut `dev`), `pipeline_read_env` (défaut `dev`),
 `reference_read_env` (défaut `prod`) pour la BOM ; `READ_ENV` (défaut `prod`) et `WRITE_ENV` (défaut `dev`) pour le référentiel.
@@ -574,7 +593,7 @@ Conséquence : `BOM_exposed` est le **contrat** de lecture. Changer ses 22 colon
 | Silver : nombre de colonnes | ~170 | **214** (DESCRIBE du 2026-10-13) |
 | Silver : nombre de lignes | 3 230 287 | confirmé |
 | Gold : nombre de colonnes | ~175 | **216** |
-| Job | `1007135342276807` | confirmé ; nom `W_0_AS_Design_BOM_DataAsset` |
+| Job | `1007135342276807` | id selon les notes ; le YAML ne contient pas d'id (à confirmer) |
 | `bom_qc` | produite par le même job | **produite par le job uc27** (`W_0_uc27-business_data_consistency`) |
 | Gold : relations | `production.bom` ← Silver + référentiel | confirmé ; la vue ne contient que 22 colonnes |
 | Silver : STKO | `BOMEIN` présenté comme quantité de base | `quantity_base` = `BMENG` (quantité) ; `STKO_bmein` = unité |

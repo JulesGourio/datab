@@ -70,7 +70,7 @@ SAP ECC6  (extractions en fichiers, S3)
 │   mara_latest, makt_latest (utilisés │          │
 │   par A et B)                        │          │
 └───────┬────────────────────────────┘              │
-        │ job W_0_AS_Design_BOM_DataAsset (1007135342276807)
+        │ job W_3_SAP_AS_Design_BOM_DataAsset (id 1007135342276807, à confirmer)
         │ task create_BOM_silver : as_design_BOM_bronze_to_silver
         ▼                                            │
 ┌────────────────────────────────────┐              │
@@ -129,7 +129,7 @@ Consommateurs de la BOM officielle (lecture de bom_exposed sauf mention) :
 | `{env}_gold.mrp.order_component_requirement_history` (+ `_exposed`) | **Nouveau, lab** | Historique des besoins OP/OF (B) |
 | `{env}_proj.supply_chain.ucTBD_bom_reliability_component` / `_work_order` | **Nouveau, lab** | Fiabilité (C) |
 
-Jobs connus : `W_0_AS_Design_BOM_DataAsset` (1007135342276807), `W_0_uc27-business_data_consistency` (474119062548779),
+Jobs connus : `W_3_SAP_AS_Design_BOM_DataAsset` (id 1007135342276807 selon les notes), `W_0_uc27-business_data_consistency` (474119062548779),
 `F_0_SAP_Ingestion_V2` (ingestion des stacks, nom issu du journal). Planning du job Silver : hebdomadaire, dimanche
 vers 01h **[À CONFIRMER dans le JSON du job]**.
 
@@ -478,7 +478,7 @@ Points **non conformes** à régler avant Bitbucket : `sys.path.insert` et le pa
 | v4 disait | v5 corrige |
 |---|---|
 | La BOM Silver est le seul actif BOM officiel | Une Gold officielle existe (`production.BOM`, `BOM_exposed`, `bom_qc`) |
-| Job Silver `W_3_SAP_AS_Design_BOM_DataAsset` | `W_0_AS_Design_BOM_DataAsset` (id 1007135342276807, même job) |
+| Job Silver | `W_3_SAP_AS_Design_BOM_DataAsset` (YAML du 2026-10-13). Le nom « W_0 » de la v5 initiale était faux. |
 | Silver : 186 colonnes, 3 228 402 lignes | ~214 colonnes (comptage manuel), 3 230 287 lignes (2026-10-13) |
 | `bom_qc` produit par le notebook Gold | produit par le job uc27 (`W_0_uc27-business_data_consistency`) |
 | Lecture des stacks « depuis Gold » (dette) | lecture de la landing zone |
