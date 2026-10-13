@@ -27,6 +27,7 @@
 # MAGIC - {REFERENCE_READ_ENV}_gold.production.work_orders_sap_exposed
 # MAGIC - {REFERENCE_READ_ENV}_gold.supply_chain_logistic.part_movement_exposed
 # MAGIC - {REFERENCE_READ_ENV}_gold.master_data.material_plant
+# MAGIC - {REFERENCE_READ_ENV}_gold.master_data.material_master_data_plant_exposed
 # MAGIC - {REFERENCE_READ_ENV}_gold.master_data.material_exposed
 # MAGIC - {REFERENCE_READ_ENV}_gold.master_data.plant_master_data_latest_exposed
 # MAGIC - {REFERENCE_READ_ENV}_gold.finance.profit_center_exposed
@@ -49,6 +50,8 @@
 # MAGIC   `SHORTAGE` (forecast < consumption), `OK`.
 # MAGIC - Reliability of an AF / profit center = 1 - average of `error_percentage_forecast_2_consumption_2` of its
 # MAGIC   component rows (DAX `AVERAGE`).
+# MAGIC - `component_PF_usage_ratio`: share (0 to 1) of the usage of the component allocated to the profit center of the AF
+# MAGIC   (`PF_pourcentage_affectation`); NULL when the profit center is not in the dictionary of the component.
 # MAGIC - `volume_scaling_factor` (work order table): final OF quantity / order quantity known at T0.
 # MAGIC - `forecast_source`: `WORK_ORDER_AT_T0`, `PLANNED_ORDER_AT_T0` or `NONE`; `is_in_reliability_scope` = not `NONE`.
 
@@ -76,7 +79,10 @@ dbutils.library.restartPython()
 # MAGIC - `consumption_3_quantity` not computed (inventory differences 701/702 are never posted on an OF).
 # MAGIC - Component price is the current budget standard price (`material_plant`), not the price at T0
 # MAGIC   (`material_plant_price_history_exposed` holds it per fiscal period).
-# MAGIC - "PF usage" column of the specification not delivered: definition to obtain (`quota_usage`?).
+# MAGIC - "PF usage" is delivered as `component_PF_usage_ratio`: the dictionary keys are operational profit centers, while
+# MAGIC   the profit center of an AF can be a umbrella code (98A, 98M…) absent from the dictionary (value NULL): to be confirmed.
+# MAGIC - Scope `branch = IS` follows the request; IS articles also exist in plants 1000 and 1900 shared with AS. Rework / rush OF
+# MAGIC   types (ZP09, ZP10, ZP11, YP09, YP10, YP11) are kept: to be confirmed.
 # MAGIC - Optional page 3 (per BOM item) and comments per BOM item not delivered.
 # MAGIC - Alternative of the BOM used by a phantom assembly: the lowest alternative of the phantom article (to be confirmed).
 # MAGIC - `profit_center_exposed` may hold several validity rows per profit center: one is kept arbitrarily
@@ -147,6 +153,7 @@ WIDGET_NAMES = [
     "debug",
     "log_level",
     "debug_plant",
+    "branch",
 ]
 PREVIOUS_WIDGET_VALUES = {}
 for widget_name in WIDGET_NAMES:
@@ -186,11 +193,14 @@ dbutils.widgets.dropdown(
 
 dbutils.widgets.text("debug_plant", PREVIOUS_WIDGET_VALUES.get("debug_plant", ""))
 
+dbutils.widgets.text("branch", PREVIOUS_WIDGET_VALUES.get("branch", "IS"))
+
 # COMMAND ----------
 
 # MAGIC %md
 # MAGIC ### Debug Boolean
 # MAGIC `debug_plant` restricts the run to one plant (lab only, empty in jobs).
+# MAGIC `branch` restricts the scope to the AF of one branch (`IS` = Interconnection Systems, as in the request; empty = all).
 
 # COMMAND ----------
 
@@ -199,6 +209,8 @@ DEBUG = dbutils.widgets.get("debug").lower() == "true"
 LOG_LEVEL = dbutils.widgets.get("log_level")
 
 DEBUG_PLANT = dbutils.widgets.get("debug_plant").strip()
+
+BRANCH = dbutils.widgets.get("branch").strip()
 
 # COMMAND ----------
 
@@ -298,6 +310,7 @@ df_requirement_raw = spark.read.table(own_gold_table("mrp", "order_component_req
 df_work_order_raw = spark.read.table(f"{REFERENCE_READ_ENV}_gold.production.work_orders_sap_exposed")
 df_part_movement_raw = spark.read.table(f"{REFERENCE_READ_ENV}_gold.supply_chain_logistic.part_movement_exposed")
 df_material_plant_raw = spark.read.table(f"{REFERENCE_READ_ENV}_gold.master_data.material_plant")
+df_master_data_plant_raw = spark.read.table(f"{REFERENCE_READ_ENV}_gold.master_data.material_master_data_plant_exposed")
 df_material_raw = spark.read.table(f"{REFERENCE_READ_ENV}_gold.master_data.material_exposed")
 df_plant_raw = spark.read.table(f"{REFERENCE_READ_ENV}_gold.master_data.plant_master_data_latest_exposed")
 df_profit_center_raw = spark.read.table(f"{REFERENCE_READ_ENV}_gold.finance.profit_center_exposed")
@@ -616,6 +629,28 @@ df_gx_profit_center = SparkDFDataset(df_profit_center_prep, persist=False)
 # COMMAND ----------
 
 # MAGIC %md
+# MAGIC ##Prep7 - Branch and profit center usage of the materials
+# MAGIC `Branch` of the AF (`IS` / `AS`) defines the scope of the request. `PF_pourcentage_affectation` is a dictionary
+# MAGIC profit center -> share of the usage of the material (0 to 1): for a component, the share of its usage allocated to
+# MAGIC the profit center of the AF.
+
+# COMMAND ----------
+
+df_master_data_plant_prep = table_utils.remove_leading_zeros(
+    df=df_master_data_plant_raw.select(
+        f.col("Material_Number").alias("material_number"),
+        f.col("Plant").alias("plant"),
+        f.col("Branch").alias("branch"),
+        f.col("PF_pourcentage_affectation").alias("PF_usage_by_profit_center"),
+    ),
+    column_names=["material_number"],
+).dropDuplicates(["material_number", "plant"])
+
+df_gx_master_data_plant = SparkDFDataset(df_master_data_plant_prep, persist=False)
+
+# COMMAND ----------
+
+# MAGIC %md
 # MAGIC # Data Transformations
 
 # COMMAND ----------
@@ -626,10 +661,20 @@ df_gx_profit_center = SparkDFDataset(df_profit_center_prep, persist=False)
 
 # COMMAND ----------
 
-df_scope = df_work_order_prep.join(
+# Scope of the request: AF of the chosen branch (semi join, the OF are not multiplied)
+df_work_order_scope = df_work_order_prep
+if BRANCH:
+    df_work_order_scope = df_work_order_prep.join(
+        df_master_data_plant_prep.filter(f.col("branch") == BRANCH).select("material_number", "plant"),
+        ["material_number", "plant"],
+        how="left_semi",
+    )
+    log.info(f"Scope limited to the AF of branch {BRANCH}")
+
+df_scope = df_work_order_scope.join(
     f.broadcast(df_period),
-    (df_work_order_prep["real_start_date"] >= df_period["T1_date"])
-    & (df_work_order_prep["real_end_date"] <= df_period["T2_date"]),
+    (df_work_order_scope["real_start_date"] >= df_period["T1_date"])
+    & (df_work_order_scope["real_end_date"] <= df_period["T2_date"]),
     how="inner",
 )
 
@@ -936,6 +981,17 @@ df_transf = df_transf.join(
 )
 df_transf = df_transf.join(df_plant_prep, ["plant"], how="left")
 df_transf = df_transf.join(df_profit_center_prep, ["profit_center"], how="left")
+df_transf = (
+    df_transf.join(
+        df_master_data_plant_prep.select(
+            f.col("material_number").alias("component_material_number"), "plant", "PF_usage_by_profit_center"
+        ),
+        ["component_material_number", "plant"],
+        how="left",
+    )
+    .withColumn("component_PF_usage_ratio", f.try_element_at("PF_usage_by_profit_center", f.col("profit_center")))
+    .drop("PF_usage_by_profit_center")
+)
 log.info("Joined descriptions and plant data - key uniqueness checked in Quality Checks")
 
 # COMMAND ----------
@@ -987,6 +1043,7 @@ COMPONENT_OUTPUT_COLUMNS = [
     "component_family",
     "component_class",
     "component_ABC_indicator",
+    "component_PF_usage_ratio",
 ]
 
 df_transf = df_transf.select(*COMPONENT_OUTPUT_COLUMNS)
@@ -1054,6 +1111,7 @@ red_quality_check_results = [
     df_gx_material_plant.expect_compound_columns_to_be_unique(["material_number", "plant"]),
     df_gx_plant.expect_column_values_to_be_unique(column="plant"),
     df_gx_profit_center.expect_column_values_to_be_unique(column="profit_center"),
+    df_gx_master_data_plant.expect_compound_columns_to_be_unique(["material_number", "plant"]),
 ]
 
 gx_validation.validate_and_log_gx_results(
