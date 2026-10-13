@@ -54,9 +54,17 @@
 
 # COMMAND ----------
 
+# MAGIC %pip install "great_expectations==0.18.22"
+
+# COMMAND ----------
+
+dbutils.library.restartPython()
+
+# COMMAND ----------
+
 # MAGIC %md
 # MAGIC # Technical debt
-# MAGIC - `sys.path.insert(...)` and the `persist` / `cache` patch in the standard imports cell are for lab runs only (serverless): remove them before the move to Bitbucket.
+# MAGIC - Lab runs only, to remove before the move to Bitbucket: the `%pip install great_expectations` cell and its restart (the job task declares the library), `sys.path.insert(...)` (`leap_utils`) and the `persist` / `cache` patch (serverless) in the standard imports cell.
 # MAGIC - Use case number `ucTBD`, Proj schema `supply_chain` and the folder name are placeholders (JIRA EPIC to come).
 # MAGIC - Period grid limited to the two options of the request (P1 = 6 or 3 months, P2 = 3 months). Free choice of T1 / T2
 # MAGIC   (request bonus) is not delivered: it would need the consumption at day level.

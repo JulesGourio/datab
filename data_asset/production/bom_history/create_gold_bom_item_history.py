@@ -43,9 +43,17 @@
 
 # COMMAND ----------
 
+# MAGIC %pip install "great_expectations==0.18.22"
+
+# COMMAND ----------
+
+dbutils.library.restartPython()
+
+# COMMAND ----------
+
 # MAGIC %md
 # MAGIC # Technical debt
-# MAGIC - `sys.path.insert(...)` in the standard imports cell is for lab runs only: remove it before the move to Bitbucket.
+# MAGIC - Lab runs only, to remove before the move to Bitbucket: the `%pip install great_expectations` cell and its restart (the job task declares the library), `sys.path.insert(...)` (`leap_utils`) and the `persist` / `cache` patch (serverless) in the standard imports cell.
 # MAGIC - Landing zone stacks are read directly from Gold (no Bronze history table exists; the stacks are kept
 # MAGIC   indefinitely, so a full rebuild is always possible and `rebuild_mode = incremental` is only a cost optimisation).
 # MAGIC - `sap_number()` adds a trim to what `table_utils.transform_float_column()` does: to be merged into `leap_utils`.
@@ -87,6 +95,16 @@ from pyspark.sql.window import Window
 # Lab test runs only: leap_utils is read from a workspace folder. Remove before the move to Bitbucket,
 # where it is declared as a library of the job task.
 sys.path.insert(0, "/Workspace/Users/jules.gourio.external@latecoere.aero/dev_ict_FI_invoice")
+
+# Lab test runs on serverless compute only: persist / cache are not supported there and Great Expectations calls them.
+# Remove before the move to Bitbucket (job clusters support them).
+try:
+    from pyspark.sql.connect.dataframe import DataFrame as ConnectDataFrame
+
+    for method_name in ("persist", "cache", "unpersist"):
+        setattr(ConnectDataFrame, method_name, lambda self, *args, **kwargs: self)
+except ImportError:
+    pass
 
 # COMMAND ----------
 
