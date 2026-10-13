@@ -182,3 +182,15 @@ Vérifications Genie associées : RB1–RB4 (rebut), RA1–RA2 (ajustements) —
 ## Renvoi 2026-10-13
 
 La liste complète des questions métier, OP/OF et architecture (spec v2) est dans `questions_metier_et_architecture.md`.
+
+## Mise à jour 2026-10-13 (POC Average BOM)
+
+- **L9** : matière en vrac (`schgt`) exclue du POC existant ; garder ou exclure dans la fiabilité ? (B les marque
+  `is_bulk_material`, C les garde.) Même question pour le composant `SPLIT` et le statut usine `05`.
+- **L10** : périmètre de la demande : branche **IS**. Filtre de branche à ajouter dans C ? Exclure les ordres « rush »
+  (types ZP09, ZP10, ZP11, YP09, YP10, YP11) comme le POC ? (Genie X6)
+- **L11** : « PF usage » = `PF_pourcentage_affectation` du composant pour le centre de profit de l'AF ? À confirmer, puis
+  ajouter la colonne dans C (Genie X7).
+- **M7 / Conso 3** : catégories `RESB_postp` : `1` = pièce manquante, `2`-`5` = surconsommation (manuelles) : piste pour la
+  Conso 2. Le pourcentage d'affectation par centre de profit est la piste pour la Conso 3.
+- **L6** : le POC existant utilise `sobsl = 50` seulement (comme nous) ; le notebook forecast ajoute `55` et le vrac.

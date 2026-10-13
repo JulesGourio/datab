@@ -1,6 +1,6 @@
 # Notebooks BOM existants — recouvrement avec le projet de fiabilité
 
-Les cinq notebooks de `reference/notebooks_existants/` sont des copies telles quelles des notebooks déjà utilisés. Ils ne
+Les huit notebooks de `reference/notebooks_existants/` sont des copies telles quelles des notebooks déjà utilisés. Ils ne
 suivent pas la structure LEAP (pas de sections, widgets sans `removeAll`, `print`, `.display()`…) : ce sont des
 références de logique métier, pas des modèles de code.
 
@@ -63,3 +63,39 @@ construits depuis les tables `*_stack` de la landing zone sont donc le seul moye
   réservation absent de `part_movement_exposed`.
 
 Questions à poser à Genie sur ces tables : voir `genie_questions_and_output_tests.md` (lot 4, questions X1 à X5).
+
+## 5. Trois notebooks de plus : l'indicateur actuel et les contrôles qualité
+
+| Notebook | Rôle |
+|---|---|
+| `reference/notebooks_existants/create_proj_average_bom.py` | **L'indicateur existant « Average BOM »** (POC) : compare la BOM standard actuelle aux réservations des OF terminés des 12 derniers mois, branche IS |
+| `reference/notebooks_existants/quality_checks_material_master_data.py` | règles de qualité du métier sur `material_master_data_plant` (tables `manual_input.*_is_qc`) |
+| `reference/notebooks_existants/quality_checks_production_version.py` | idem sur `production_version` |
+
+Les deux notebooks de qualité sont identiques à `quality_checks_bom.py` (même structure,
+`validate_business_data.apply_quality_checks_by_rule`). Ils n'apportent rien à la fiabilité : piste pour plus tard, brancher les
+mêmes règles sur `bom_item_history_exposed`.
+
+### Ce que le POC « Average BOM » apprend (et qui n'était pas connu)
+
+1. **Catégories de lignes de réservation (`RESB_postp`)** : `L` et `0` = ligne standard issue de la BOM ; `1` = pièce
+   manquante ajoutée à la main ; `2`, `3`, `4`, `5` = surconsommation ajoutée à la main. Cela précise la piste Conso 2
+   (M7) : les consommations sur lignes 1 à 5 ne sont pas « nominales ». Notre B garde déjà cette catégorie
+   (`BOM_item_category`), mais C ne l'utilise pas encore pour la consommation.
+2. **« PF usage »** (colonne demandée) : le POC lit `PF_pourcentage_affectation` dans
+   `material_master_data_plant_exposed`, un dictionnaire centre de profit → pourcentage d'affectation du composant,
+   affiché « x % » ou « <1 % ». C'est très probablement la définition de « PF usage ».
+3. **Conso 3** (« régularisation de stock en proportion du centre de profit ») : le même pourcentage d'affectation est la
+   piste naturelle pour répartir les écarts d'inventaire d'un composant entre les centres de profit.
+4. **Périmètre** : branche `IS` (interconnexion, c'est la demande), OF au statut livré, hors ordres « rush »
+   (types `ZP09`, `ZP10`, `ZP11`, `YP09`, `YP10`, `YP11`, production sans article). C n'applique aucun de ces filtres.
+5. **Exclusions** : matière en vrac (`schgt` dans les réservations, `Bulk_Material` dans la BOM), composant `SPLIT`
+   (gestion de coupe), composants dont le statut usine n'est pas `05`. C garde les articles en vrac (B les marque).
+6. **Rebut** : `Quantity_wo_scrap = quantité × (1 − RESB_ausch / 100)`. Chez nous, la Prévision 2 est `esmng` (quantité
+   sans rebut composant), ce qui est équivalent quand `bdmng` = `esmng` × (1 + `ausch`) arrondi.
+7. **Choix de la BOM** : version de production active (non verrouillée, valide aujourd'hui), arbitrage par les quotas,
+   sinon la BOM créée en premier. Ce choix n'existe qu'à la date du jour ; nous prenons l'alternative de l'OF ou de l'OP à T0.
+8. **Fantômes** : GraphFrames sur `Procurement_Special_Type = 50` uniquement (comme nous). Le notebook forecast utilise
+   `50, 55` + vrac : les notebooks existants ne sont pas d'accord entre eux.
+9. **Fiabilité du POC** : binaire par composant, écart de ±5 % entre la BOM standard et la moyenne des réservations
+   d'OF ; elle ne mesure pas la consommation réelle. C'est exactement le défaut décrit dans la demande.

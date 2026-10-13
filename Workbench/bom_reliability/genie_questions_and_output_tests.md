@@ -338,3 +338,19 @@ ont bulk_material = X, et sont-ils consommés sur des OF (mouvement 261) ?
 X5. Les articles dont le code commence par 49 : combien, quel type de matière, apparaissent-ils dans des réservations
 d'OF et des BOM ?
 ```
+
+```
+X6. Table prod_gold.production.work_orders_sap_exposed : liste les colonnes. Existe-t-il des colonnes branche (Branch),
+type d'ordre (Order_Type) et statut (WO_Status) ? Pour les OF terminés en 2025 : nombre d'OF par branche et par type
+d'ordre ; combien ont un type parmi ZP09, ZP10, ZP11, YP09, YP10, YP11 ?
+
+X7. Tables prod_gold.master_data.material_master_data_plant_exposed et prod_gold.master_data.material_plant_exposed :
+la colonne PF_pourcentage_affectation existe-t-elle dans l'une, dans l'autre, dans les deux ? Quel est son type
+(dictionnaire centre de profit -> pourcentage ?) Les clés ont-elles des zéros de tête ? Donne 5 exemples de lignes.
+
+X8. Dans la réservation des OF terminés en 2025 : combien de lignes par RESB_postp (L, 0, 1, 2, 3, 4, 5, autres) et
+quelle part des quantités consommées (mouvement 261) cela représente-t-il ?
+
+X9. Composants dont schgt (vrac) est renseigné dans les réservations d'OF terminés en 2025 : combien de composants et
+quelle part des lignes de réservation ? Le composant "SPLIT" existe-t-il dans des réservations ?
+```
