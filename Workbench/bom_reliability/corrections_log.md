@@ -351,3 +351,8 @@ Spec remise à jour en v5 (ancienne version dans `Spec Output/archive/`).
   tables complètes : en mode `debug_plant`, C lit maintenant aussi les tables `*_debug` et écrit des tables `*_debug`.
   Pour un test rapide, lancer A, B et C avec le même `debug_plant`.
 - Dossier `Workbench/bom_reliability/` aplati ; notebooks existants dans `reference/notebooks_existants/`.
+
+## 2026-10-13 — Genie X1 à X9
+
+Résultats et conséquences dans `analyse_notebooks_existants.md` (§6 et §7). Aucune modification de code : toutes les
+règles candidates (périmètre IS, ordres rush, vrac, « PF usage », catégories de réservation) restent à confirmer.

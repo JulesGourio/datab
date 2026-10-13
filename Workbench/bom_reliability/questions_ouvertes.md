@@ -194,3 +194,15 @@ La liste complète des questions métier, OP/OF et architecture (spec v2) est da
 - **M7 / Conso 3** : catégories `RESB_postp` : `1` = pièce manquante, `2`-`5` = surconsommation (manuelles) : piste pour la
   Conso 2. Le pourcentage d'affectation par centre de profit est la piste pour la Conso 3.
 - **L6** : le POC existant utilise `sobsl = 50` seulement (comme nous) ; le notebook forecast ajoute `55` et le vrac.
+
+## Mise à jour 2026-10-13 (résultats X1 à X9)
+
+- **L6** : on garde `sobsl = 50` (55 = approvisionnement spécial, 199 articles consommés en 2025). ✅ proposé
+- **M7** : exclure les consommations sur réservations 2 à 5 changerait la Conso 2 de moins de 1 % (X3) ; la signification
+  de `RESB_postp` est contradictoire (POC contre Genie) : **à demander au métier**, priorité basse.
+- **L10** : pas de colonne branche dans `work_orders_sap_exposed` : comment définir le périmètre IS (usines, site, division) ?
+  Types ZP09, ZP10, ZP11, YP09, YP10, YP11 (10,6 % des OF de 2025) : « rush » ou retouche, à garder ou exclure ?
+- **L11** : « PF usage » : les clés de `PF_pourcentage_affectation` (E2P, E7P…) ne sont pas les centres de profit numériques
+  de C : vérifier la correspondance avant d'ajouter la colonne (Genie X10).
+- **L9** : vrac = 4,5 % des lignes de réservation (1 299 composants) ; `SPLIT` = 2 783 lignes ; à décider.
+- **X1** : `planned_orders_and_work_order_stack_sap` n'est pas un historique : rien à réutiliser pour B.

@@ -99,3 +99,26 @@ mêmes règles sur `bom_item_history_exposed`.
    `50, 55` + vrac : les notebooks existants ne sont pas d'accord entre eux.
 9. **Fiabilité du POC** : binaire par composant, écart de ±5 % entre la BOM standard et la moyenne des réservations
    d'OF ; elle ne mesure pas la consommation réelle. C'est exactement le défaut décrit dans la demande.
+
+## 6. Résultats Genie X1 à X9 (2026-10-13)
+
+| Question | Résultat | Conséquence |
+|---|---|---|
+| X1 `planned_orders_and_work_order_stack_sap` | Pas un vrai stack : table recréée chaque jour (`CREATE OR REPLACE`), contient seulement les ordres planifiés encore ouverts (991 146) ; un OP converti en OF disparaît | Inutilisable pour l'historique : B reste construit sur les stacks `plaf` / `afko` / `afpo` |
+| X2 `sap_mrp_reservation_latest` | `RESB_postp` : `L` 61,3 M, `0` 15,6 M, `R`, `Z`, `2` (189 k), `T`, `U`, `1` (24 k), `3`, `5`, `V`, `W`, `4`… Les significations données par Genie (coproduit, sous-produit, sous-traitance…) contredisent celles du POC (1 = pièce manquante, 2 à 5 = surconsommation) | Significations **non fiables** : à faire confirmer par le métier avant toute règle |
+| X3 mouvements 261 de 2025 | 63 717 mouvements (0,91 %), 815 920 pièces (0,68 % de la quantité) sur réservations de catégorie 2 à 5 ; `MSEG_rsnum` / `MSEG_rspos` existent dans `part_movement` | Exclure ces lignes de la Conso 2 changerait le total de moins de 1 % |
+| X4 `procurement_special_type = 55` | 7 830 articles, 30 en vrac ; seulement 199 consommés sur OF depuis 2025 (620 mouvements) | 55 n'est pas un fantôme (plutôt approvisionnement spécial / sous-traitance) : on garde `sobsl = 50` (L6) |
+| X5 articles `49…` | 24 693 articles (POUT surtout), 606 présents dans des réservations d'OF (68 683 lignes), 31 seulement dans des BOM | Des pièces achetées / outillage consommés hors BOM ; exclusion du notebook forecast à faire confirmer (L7) |
+| X6 `work_orders_sap_exposed` | Pas de colonne branche ; `work_order_type`, `work_order_status`, `is_delivered`, `is_cancelled`, `site`, `division`, `region` existent. Types ZP09, ZP10, ZP11, YP09, YP10, YP11 : 29 616 OF sur 280 697 terminés en 2025 (10,6 %) | Filtre branche IS à définir sans colonne branche (L10) ; ces types = « rush » (POC) ou retouche / réparation (Genie) : à trancher |
+| X7 `PF_pourcentage_affectation` | Dans `material_plant_exposed` et `material_master_data_plant_exposed`, `MAP<STRING, DOUBLE>`, clés de 3 caractères (E2P, E7P, OTW…) sans zéro de tête | Les clés ne ressemblent pas aux centres de profit numériques de C (101, 119…) : jointure à vérifier avant d'ajouter « PF usage » (X10) |
+| X8 réservations d'OF terminés 2025 | 97,2 % de la quantité 261 sur `L` et `0` ; 1,44 % des mouvements 261 sans réservation | Une consommation sans réservation n'a aucune prévision : erreur maximale pour ce composant |
+| X9 vrac et `SPLIT` | 529 201 lignes en vrac (4,5 %), 1 299 composants ; 2 783 lignes `SPLIT` | Décision métier sur le vrac (L9) ; `SPLIT` = gestion de coupe (POC) ou éclatement de réservation (Genie) |
+
+## 7. FIFO et matière en vrac
+
+Notre notebook C **n'utilise aucun FIFO**. La consommation d'un composant est lue sur les mouvements 261 / 262 imputés à
+l'ordre de fabrication (`work_order`), donc le composant est déjà rattaché à l'OF et à son article fabriqué sans avoir
+à trouver de lot. Le FIFO des notebooks existants sert à autre chose : retrouver, pour un avion livré, quels lots de
+composants ont été consommés en amont. La matière en vrac (vis, colles…) est donc lue comme les autres composants :
+elle est rattachée à l'OF, mais ses quantités sont souvent approximatives (déclarées en vrac) et 1,4 % des mouvements
+n'ont pas de réservation. Elle est repérable par `is_bulk_material` (B) pour décider de la garder ou de l'écarter (L9).

@@ -354,3 +354,13 @@ quelle part des quantités consommées (mouvement 261) cela représente-t-il ?
 X9. Composants dont schgt (vrac) est renseigné dans les réservations d'OF terminés en 2025 : combien de composants et
 quelle part des lignes de réservation ? Le composant "SPLIT" existe-t-il dans des réservations ?
 ```
+
+```
+X10. Pour les articles fabriqués (AF) de la plante 2400 : compare la colonne profit_center de material_plant_exposed
+et la colonne Profit_Center de material_master_data_plant_exposed, et donne 10 exemples de PF_pourcentage_affectation
+de material_master_data_plant_exposed pour ces articles. Les clés du dictionnaire (E2P, E7P…) correspondent-elles à
+Profit_Center ou à une autre colonne (programme, Profit_Center_short de profit_center_exposed) ?
+
+X11. Liste les plantes du périmètre "IS" : dans material_master_data_plant_exposed, quelles valeurs prend la colonne
+Branch, et combien de plantes distinctes par valeur ? Les plantes dont le code commence par 2 ont-elles Branch = IS ?
+```
