@@ -275,3 +275,7 @@ Run en job, toutes usines, tout l'historique. Résultats des requêtes de contr�
 - Anomalie : `profit_center_description` vide partout sauf pour `98M` : `profit_center_exposed` garde les zéros de tête
   des centres numériques (`0000000100`). Correction : `remove_leading_zeros` avant la jointure.
 - 12 lignes sans `material_description` (AF) : à investiguer.
+
+## 2026-10-13 — Numéro de use case
+
+- Use case 93 : tables `uc093_bom_reliability_component` et `uc093_bom_reliability_work_order`, dossier `proj/uc093-bom_reliability`. Les tables `ucTBD_…` du lab sont obsolètes (à supprimer).

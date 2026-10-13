@@ -72,7 +72,7 @@ Chaque question indique **à qui la poser**, si elle **bloque**, et **ce que fai
 
 | # | Question | Niveau | Défaut actuel |
 |---|---|---|---|
-| L1 | **Numéro de use case** (EPIC JIRA), **domaine** Proj et nom du dossier `proj/` | 🔴 avant Bitbucket | `ucTBD`, `supply_chain` |
+| L1 | **Domaine** Proj et nom du dossier `proj/` (numéro de use case = 93) | 🟠 avant Bitbucket | `uc093`, `supply_chain` |
 | L2 | **DAS + Test Definition** : qui les rédige ? (règle LEAP : pas de build sans eux) Qui valide les exemples de référence dans SAP (CS03, CO03, MB51) ? | 🔴 avant Bitbucket | Spec technique + exemples Genie seulement |
 | L3 | Nommage clé primaire / contrainte : `{table}_ID` et `gold_{table}_PK` confirmés ? | 🟢 | Oui (Confluence) |
 | L4 | Vue `_exposed` requise pour les deux tables Gold d'historique ? | 🟢 | Oui |

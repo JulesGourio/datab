@@ -32,8 +32,8 @@
 # MAGIC - {REFERENCE_READ_ENV}_gold.finance.profit_center_exposed
 # MAGIC
 # MAGIC **Output Tables (Pipeline)**
-# MAGIC - {PIPELINE_WRITE_ENV}_proj.supply_chain.ucTBD_bom_reliability_component
-# MAGIC - {PIPELINE_WRITE_ENV}_proj.supply_chain.ucTBD_bom_reliability_work_order
+# MAGIC - {PIPELINE_WRITE_ENV}_proj.supply_chain.uc093_bom_reliability_component
+# MAGIC - {PIPELINE_WRITE_ENV}_proj.supply_chain.uc093_bom_reliability_work_order
 # MAGIC
 # MAGIC **Calculated columns (business meaning)**
 # MAGIC - `forecast_1_quantity`: gross forecast = requirement quantity of the OP/OF known at T0 (scrap included),
@@ -65,7 +65,7 @@ dbutils.library.restartPython()
 # MAGIC %md
 # MAGIC # Technical debt
 # MAGIC - Lab runs only, to remove before the move to Bitbucket: the `%pip install great_expectations` cell and its restart (the job task declares the library), `sys.path.insert(...)` (`leap_utils`) and the `persist` / `cache` patch (serverless) in the standard imports cell.
-# MAGIC - Use case number `ucTBD`, Proj schema `supply_chain` and the folder name are placeholders (JIRA EPIC to come).
+# MAGIC - Proj schema `supply_chain` and the folder name are placeholders to confirm (use case number 93).
 # MAGIC - Period grid limited to the two options of the request (P1 = 6 or 3 months, P2 = 3 months). Free choice of T1 / T2
 # MAGIC   (request bonus) is not delivered: it would need the consumption at day level.
 # MAGIC - An order without BOM alternative at T0 (blank `stalt` on a planned order) uses the lowest alternative of the
@@ -192,7 +192,7 @@ log = logger.setup_applevel_logger(log_level=logger.LOGGER_MAPPING[LOG_LEVEL])
 # COMMAND ----------
 
 DOMAIN = "supply_chain"  # to be confirmed
-UC_PREFIX = "ucTBD"  # to be confirmed (JIRA EPIC)
+UC_PREFIX = "uc093"  # use case 93
 
 P1_MONTHS = [6, 3]  # ignored period after T0: default 6 months, second option 3 months
 P2_MONTHS = [3]  # analysed period after T1

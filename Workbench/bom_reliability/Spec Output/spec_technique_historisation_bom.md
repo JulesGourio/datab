@@ -1076,7 +1076,7 @@ Voir `working/genie_questions_and_output_tests.md` §1.10 (lot 3 : G1–G10 + qu
 |---|---|---|---|
 | A | `data_asset/production/bom_history/create_gold_bom_item_history.py` | `{env}_gold.production.bom_item_history` (+ `_exposed`) | 1er du mois × usine × AF × utilisation × alternative × n° BOM × nœud |
 | B | `data_asset/mrp/order_component_requirement_history/create_gold_order_component_requirement_history.py` | `{env}_gold.mrp.order_component_requirement_history` (+ `_exposed`) | 1er du mois × poste de réservation ouvert (OP `SB` / OF `AR`) |
-| C | `proj/ucTBD-bom_reliability/create_proj_bom_reliability.py` | `{env}_proj.supply_chain.ucTBD_bom_reliability_component`, `..._work_order` | période × usine × AF × composant / période × OF |
+| C | `proj/uc093-bom_reliability/create_proj_bom_reliability.py` | `{env}_proj.supply_chain.uc093_bom_reliability_component`, `..._work_order` | période × usine × AF × composant / période × OF |
 
 ### 14.1 Pourquoi des snapshots mensuels
 
