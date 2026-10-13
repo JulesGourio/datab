@@ -161,3 +161,9 @@ Vérifications Genie associées : RB1–RB4 (rebut), RA1–RA2 (ajustements) —
 | S5 | 🟠 : environnement `prod` confirmé ; planification absente du YAML, à confirmer dans l'UI |
 | S8 (nouveau) | 🔴 Sens du statut BOM `12` (97 238 lignes dans la Silver). Exclure comme `02`, ou garder ? |
 | S9 (nouveau) | 🟠 Faut-il exclure `cslty = X` et les liens MAST sans usine dans notre A pour aligner sur la Silver ? (D2 / D3 de la spec) |
+
+## Décision 2026-10-13
+
+- Statut BOM : A applique la règle de la Silver (`02` et vide exclus, avant le choix de la dernière version). Le statut `12`
+  est **gardé** comme dans la Silver. **Question ouverte au métier** : que signifie le statut `12` (97 238 lignes) ?
+- `cslty = X` et lignes MAST sans usine : **pas encore alignés** (question S9 ouverte).

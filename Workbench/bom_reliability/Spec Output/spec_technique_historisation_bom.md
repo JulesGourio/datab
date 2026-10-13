@@ -461,12 +461,13 @@ La table principale n'est écrite que par un run sans filtre de debug.
 | # | Décision | Options | Recommandation | Qui |
 |---|---|---|---|---|
 | D1 | Rapport avec la BOM officielle | (a) notre A séparée, alignée sur la Silver ; (b) dimension `snapshot_date` dans la Gold officielle ; (c) rebut et quantité de base ajoutés à `bom_exposed` | **(a)** : voir §9.1 | Équipe LEAP + chef de projet |
-| D2 | Filtre statut `02` et `cslty = X` | les appliquer dans A (aligner) ou les garder (plus complet) | à décider après mesure (#3, #4) | Métier + data |
+| D2 | Filtre statut `02` et `cslty = X` | statut : **appliqué dans A comme dans la Silver** (`02` et vide exclus, décision du 2026-10-13) ; `cslty = X` : à décider | `cslty` : à décider après mesure (#4) | Métier + data |
 | D3 | MAST sans usine (80 liens) | les garder (comme la Silver) ou les exclure | à décider après mesure (§8.1) | Data |
 | D4 | Sémantique de `quantity` pour Proj | brut (A) ou pondéré (Gold) | brut dans A, pondération faite dans C | Équipe Proj |
 | D5 | Historique incrémental | tables bronze `*_history` par la plateforme, ou stacks lus directement | voir H1 / H2 (`questions_ouvertes.md`) | Équipe plateforme |
 | D6 | Nommage de la Silver et de la Gold | `BOM` (majuscules, code actuel) ou `bom` (CLAUDE.md §8) | `bom` ; Unity Catalog ne fait pas de différence | Équipe LEAP |
 | D7 | Planning du job Silver et de l'historique | hebdomadaire (journal) ou autre | confirmer dans le JSON du job | Data |
+| D9 | Statut `12` (97 238 lignes dans la Silver) | gardé dans A comme dans la Silver, sens à demander au métier | à confirmer | Métier |
 | D8 | Conso 3, Prévision 3 avec ou sans rebut | voir `questions_ouvertes.md` (M8, R4) | inchangé | Métier |
 
 ---

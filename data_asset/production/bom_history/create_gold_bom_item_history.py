@@ -49,10 +49,11 @@
 # MAGIC - Landing zone stacks (`{REFERENCE_READ_ENV}_landingzone`) are read directly, not Bronze: Bronze `*_latest` keeps
 # MAGIC   one snapshot only. The stacks are kept indefinitely, so a full rebuild is always possible and
 # MAGIC   `rebuild_mode = incremental` is only a cost optimisation.
-# MAGIC - Not aligned with the official Silver `prod_silver.production.bom` yet: that table excludes STKO status `02` and
-# MAGIC   blank, MAST `cslty = X`, and MAST rows without plant, and keeps every non-cancelled STAS row (no latest-per-node
-# MAGIC   rule). This notebook applies the validity rules instead. Each difference is listed in the spec §8 and must be
-# MAGIC   decided before the move to Bitbucket.
+# MAGIC - Status rule aligned with the official Silver `prod_silver.production.bom`: STKO status `02` and blank are excluded
+# MAGIC   before the latest-version choice (`EXCLUDED_BOM_STATUS`). Status `12` (97 238 lines in the Silver) is kept,
+# MAGIC   its meaning is an open question. Still not aligned: MAST `cslty = X` (excluded by the Silver, kept here) and
+# MAGIC   MAST rows without plant (kept by the Silver, excluded here). Decision to take before the move to Bitbucket,
+# MAGIC   see spec §8 and §9 (D2, D3).
 # MAGIC - `sap_number()` adds a trim to what `table_utils.transform_float_column()` does: to be merged into `leap_utils`.
 # MAGIC - The first run after the move to a partitioned table (`snapshot_date`) must use `rebuild_mode = full`.
 # MAGIC - To be replaced if the platform exposes Bronze `*_history` tables.
@@ -209,6 +210,8 @@ BOM_USAGES = ["1"]  # stlan: production (99.97 % of MAST links)
 PHANTOM_SPECIAL_PROCUREMENT = "50"  # MARC.sobsl of a phantom assembly
 LATEST_ROW_ORDER = ["_ingestion_timestamp", "_stack_row_id"]  # a source extraction can repeat a row
 FULL_EXTRACTION = "FULL"  # MARC/MARM also contain partial DELTA extractions
+# STKO status excluded as in the official Silver (locked / blank). Status "12" is kept: meaning to be confirmed.
+EXCLUDED_BOM_STATUS = ["02", ""]
 
 # Same-dimension conversions SAP does through T006 (no MARM record): (from_unit, base_unit, factor)
 ISO_UNIT_FACTORS = [
@@ -516,6 +519,7 @@ df_stko_prep = (
     select_extractions(df_stko_raw, df_map_stko)
     .filter(f.trim("stlty") == BOM_CATEGORY)
     .select(*STKO_COLUMNS)
+    .filter(~f.col("BOM_status").isin(EXCLUDED_BOM_STATUS))
     .filter(f.coalesce(f.col("header_valid_from_date") < f.col("snapshot_date"), f.lit(True)))
     .withColumn("rn", f.row_number().over(window_stko))
     .filter("rn = 1")

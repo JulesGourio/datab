@@ -333,3 +333,10 @@ Spec remise à jour en v5 (ancienne version dans `Spec Output/archive/`).
 - **Table de lab : régression constatée.** `dev_lab.lab_jules.bom_item_history` contient 63 702 lignes au 2026-10-01 contre
   3 688 354 dans le run 2. Cause : un run de debug (`debug_plant`) en mode `full` réécrit toute la table (`mode = overwrite`).
   **Correction de code** : les runs de debug écrivent dans `*_debug` (A, B, C). Le run complet est à refaire.
+
+## 2026-10-13 — Alignement du statut BOM sur la Silver (notebook A)
+
+- A exclut désormais les STKO de statut `02` et vide, avant le choix de la dernière version (`EXCLUDED_BOM_STATUS`).
+  Règle identique à `as_design_BOM_bronze_to_silver`. Statut `12` gardé (sens à confirmer).
+- Non aligné : `cslty = X` et lignes MAST sans usine (questions S9).
+- Lab : run complet à refaire pour que les chiffres de A reflètent cette règle.
