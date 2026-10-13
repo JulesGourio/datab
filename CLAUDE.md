@@ -87,6 +87,7 @@ platform/asset_bundle/<asset>/      # one DAB per job / pipeline
 Headers/SAP/<table>.yml             # source of truth for SAP field mappings (one YAML per table)
 Workbench/<asset>/Spec Output/      # DAS, test_definition.md, PowerBI guides
 Workbench/<asset>/working/          # corrections_log
+                                    # exception: Workbench/bom_reliability/ is flat (one folder: spec, logs, existing notebooks)
 leap_utils/                         # shared library (own PR rules, see §14)
 templates/                          # notebook / bundle templates (start from these)
 examples/gold/                      # reference notebook (verbatim, see §3.4)

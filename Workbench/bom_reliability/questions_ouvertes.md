@@ -139,3 +139,14 @@ Vérifications Genie associées : RB1–RB4 (rebut), RA1–RA2 (ajustements) —
 
 - Période par défaut P1 = 6, P2 = 3 ; option P1 = 3 (P3 résolu). Avec P1 = 6, la première mesure complète est T0 = oct. 2023, OF terminés avant juillet 2024.
 - Nouveaux points ouverts : source de la **division** (page 2), définition de **PF usage**, méthode de la **Conso 3**, famille / classe / code 0 ou L, besoin d'une tendance **hebdomadaire** (cas d'usage « d'une semaine à l'autre ») alors que les snapshots sont mensuels.
+
+## Mise à jour 2026-10-13 (notebooks existants)
+
+- **M7** : piste pour la Conso 2 « nominale » : le notebook budget exclut les consommations sur réservations de catégorie
+  de poste 2 à 5 (`RESB_postp`). À chiffrer (Genie H2, H3) et à faire confirmer par le métier avant de l'appliquer.
+- **L3** : définition d'un fantôme : `MARC.SOBSL = '50'` chez nous, `procurement_special_type in (50, 55)` et
+  `bulk_material = X` dans le notebook forecast existant. À aligner (Genie H4).
+- **L4** : composants dont le code commence par `49` exclus dans le notebook forecast existant : raison ? (Genie H5)
+- **L5** : `lead_time` unique : délai externe pour un article acheté, interne sinon (règle du notebook existant) :
+  à confirmer pour l'écran de détail.
+- Analyse complète : `analyse_notebooks_existants.md`. Trois autres notebooks sont à venir.

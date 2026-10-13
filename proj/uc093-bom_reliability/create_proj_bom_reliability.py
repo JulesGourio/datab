@@ -70,6 +70,9 @@ dbutils.library.restartPython()
 # MAGIC   (request bonus) is not delivered: it would need the consumption at day level.
 # MAGIC - An order without BOM alternative at T0 (blank `stalt` on a planned order) uses the lowest alternative of the
 # MAGIC   standard BOM (to be confirmed).
+# MAGIC - `consumption_2_quantity` keeps only movements 261 / 262. The existing budget notebook also excludes the consumptions
+# MAGIC   booked on reservation lines of item categories 2 to 5 (over-consumption): to be confirmed with the business
+# MAGIC   before it is applied here.
 # MAGIC - `consumption_3_quantity` not computed (inventory differences 701/702 are never posted on an OF).
 # MAGIC - Component price is the current budget standard price (`material_plant`), not the price at T0
 # MAGIC   (`material_plant_price_history_exposed` holds it per fiscal period).

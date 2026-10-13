@@ -189,7 +189,7 @@ Vues exposées : `<table>_exposed` dans le même catalog/schéma pour A et B (ch
 ## 4. Étape 0 — Requêtes de découverte (avant toute ligne de code)
 
 À exécuter dans un notebook scratch (pas dans le repo) ; résultats à consigner dans
-`Workbench/bom_reliability/working/corrections_log`. Chaque requête lève un **[À VÉRIFIER]** de cette spec.
+`Workbench/bom_reliability/corrections_log`. Chaque requête lève un **[À VÉRIFIER]** de cette spec.
 
 ```sql
 -- Q1. Quels historiques existent ? (stacks landing zone ET tables bronze non-"_latest")
@@ -258,7 +258,7 @@ WHERE Work_order IS NOT NULL AND Work_order <> '' GROUP BY 1 ORDER BY 2 DESC;
 |---|---|
 | ✅ Un stack RESB + PLAF existe (résultat H2 du 2026-10-06) | B reconstruit depuis les stacks (§6) |
 
-Les résultats de Q1–Q12 sont au §13 et dans `working/corrections_log.md`.
+Les résultats de Q1–Q12 sont au §13 et dans `corrections_log.md`.
 
 ---
 
@@ -1018,7 +1018,7 @@ Tags, `run_as`, notifications, `base_parameters` : guidelines LEAP §11. `lab_ta
 
 ## 13. Résultats de découverte (Genie, 2026-10-06) et impacts
 
-Détail des requêtes et résultats : `Workbench/bom_reliability/working/corrections_log.md`.
+Détail des requêtes et résultats : `Workbench/bom_reliability/corrections_log.md`.
 
 ### 13.1 Ce qui est confirmé
 
@@ -1066,7 +1066,7 @@ Détail des requêtes et résultats : `Workbench/bom_reliability/working/correct
 
 ### 13.4 Questions de suivi
 
-Voir `working/genie_questions_and_output_tests.md` §1.10 (lot 3 : G1–G10 + questions non traitées du lot 2).
+Voir `genie_questions_and_output_tests.md` §1.10 (lot 3 : G1–G10 + questions non traitées du lot 2).
 
 ---
 
@@ -1122,7 +1122,7 @@ Voir `working/genie_questions_and_output_tests.md` §1.10 (lot 3 : G1–G10 + qu
 Widgets communs : `pipeline_write_env = dev`, `reference_read_env = prod`, `lab_target_schema = dev_lab.lab_jules`.
 Premier passage court : `snapshot_from_date = 2026-01-01` et `debug_plant = 2400` sur A et B, puis
 `debug_plant = 2400` sur C. Ordre : A, B (indépendants), puis C. Ensuite, run complet sans `snapshot_from_date` ni
-`debug_plant`. Tests de sortie : `working/genie_questions_and_output_tests.md` §2 (adapter A2/A3/B2–B7 : plus
+`debug_plant`. Tests de sortie : `genie_questions_and_output_tests.md` §2 (adapter A2/A3/B2–B7 : plus
 d'intervalles, comparer chaque snapshot à l'extraction utilisée, visible dans `_BOM_extraction_timestamp` /
 `_RESB_extraction_timestamp`).
 

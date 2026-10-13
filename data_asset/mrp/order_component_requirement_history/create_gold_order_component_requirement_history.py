@@ -23,6 +23,13 @@
 # MAGIC - Phantom lines (`dumps = 'X'`) are kept and flagged: their components are already exploded by SAP in the
 # MAGIC   following lines (`baugr` = phantom article).
 # MAGIC
+# MAGIC **Role in the BOM reliability measure:**
+# MAGIC - Forecast 1 (gross BOM of the OP / OF): `requirement_quantity` of the open requirement lines at the snapshot
+# MAGIC   date T0, component scrap included.
+# MAGIC - Forecast 2 (without the adjustments): `component_BOM_quantity`, the same lines without the component scrap.
+# MAGIC - Forecast 3 comes from `bom_item_history`; consumptions 1, 2 and 3 from the part movements (use case notebook
+# MAGIC   `create_proj_bom_reliability`).
+# MAGIC
 # MAGIC **Intended Pipeline**
 # MAGIC - M_2_MRP_Order_Requirement_History_Data_Asset (to be confirmed)
 # MAGIC

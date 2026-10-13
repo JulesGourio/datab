@@ -1,8 +1,8 @@
 # BOM reliability — Questions à poser à Genie et tests des sorties
 
-Complète `Spec Output/spec_technique_historisation_bom.md`. Le §1 est la découverte à faire **avant** le build :
+Complète `spec_technique_historisation_bom.md`. Le §1 est la découverte à faire **avant** le build :
 chaque réponse lève un [À VÉRIFIER] ou alimente un [TBD] de la spec. Le §2 contient les tests à lancer sur les
-tables produites en lab (`dev_lab.lab_jules`). Les résultats vont dans `working/corrections_log`.
+tables produites en lab (`dev_lab.lab_jules`). Les résultats vont dans `corrections_log`.
 
 ---
 
@@ -315,3 +315,26 @@ WHERE to_date(extraction_timestamp) = s.d AND stlty = 'M'
   (`system.information_schema.table_constraints`).
 - Vues `_exposed` créées.
 - Cellules de test ad hoc (requêtes de ce fichier) retirées des notebooks.
+
+## Lot 4 — notebooks existants (à coller dans Genie)
+
+```
+H1. Table prod_gold.production.planned_orders_and_work_order_stack_sap : liste les colonnes, la fréquence de
+l'empilement, la première et la dernière date d'extraction, le nombre de lignes par type de document
+("Planned Orders" / "Work Orders") et par date pour les 3 derniers mois. Les ordres planifiés supprimés après
+conversion en OF y restent-ils ?
+
+H2. Table prod_gold.mrp.sap_mrp_reservation_latest : liste les colonnes (surtout RESB_postp, Quantity_Needed,
+Quantity_Consumed, Reservation_Number, Reservation_Item_Number). Quelles valeurs prend RESB_postp et combien de
+lignes par valeur ? Que signifient les valeurs 2, 3, 4 et 5 ?
+
+H3. Table prod_gold.supply_chain_logistic.part_movement (non exposée) : colonnes MSEG_rsnum et MSEG_rspos présentes ?
+Pour les mouvements 261 sur OF de 2025, quelle part est liée à une réservation dont RESB_postp vaut 2, 3, 4 ou 5,
+et quelle quantité cela représente-t-il par rapport au total des 261 ?
+
+H4. Pour les composants dont procurement_special_type vaut 55 dans material_plant_exposed : combien d'articles, combien
+ont bulk_material = X, et sont-ils consommés sur des OF (mouvement 261) ?
+
+H5. Les articles dont le code commence par 49 : combien, quel type de matière, apparaissent-ils dans des réservations
+d'OF et des BOM ?
+```

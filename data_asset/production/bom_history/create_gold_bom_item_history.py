@@ -24,6 +24,12 @@
 # MAGIC - Phantom assemblies are flagged from the component plant data (`MARC.SOBSL = '50'`); STPO has no phantom field.
 # MAGIC   They are kept here; the explosion is done by the use case.
 # MAGIC
+# MAGIC **Role in the BOM reliability measure:**
+# MAGIC - Forecast 3 (standard BOM): the BOM items of this table at the snapshot date T0, i.e. `quantity_per_unit` x OF
+# MAGIC   quantity + `quantity_per_order`, component scrap included, phantoms exploded by the use case.
+# MAGIC - Forecasts 1 and 2 come from `order_component_requirement_history`; consumptions 1, 2 and 3 from the part
+# MAGIC   movements (use case notebook `create_proj_bom_reliability`).
+# MAGIC
 # MAGIC **Intended Pipeline**
 # MAGIC - M_2_Production_BOM_History_Data_Asset (to be confirmed)
 # MAGIC
