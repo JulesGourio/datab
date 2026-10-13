@@ -356,3 +356,12 @@ Spec remise à jour en v5 (ancienne version dans `Spec Output/archive/`).
 
 Résultats et conséquences dans `analyse_notebooks_existants.md` (§6 et §7). Aucune modification de code : toutes les
 règles candidates (périmètre IS, ordres rush, vrac, « PF usage », catégories de réservation) restent à confirmer.
+
+## 2026-10-13 — Genie X10 et X11 et changements de C
+
+- X10 : les centres de profit de `material_plant_exposed` et `material_master_data_plant_exposed` sont identiques pour
+  les 8 006 articles de l'usine 2400. Pour 50 % des articles, une seule clé du dictionnaire = leur centre de profit ;
+  pour 35 %, une clé différente ; les autres sont multi-clés.
+- X11 : `Branch` vaut `AS` (10 usines) ou `IS` (16 usines) ; les 14 usines `2xxx` sont IS (articles IS aussi dans 1000 et 1900).
+- C : widget `branch` (IS par défaut, vide = toutes), nouvelle entrée `material_master_data_plant_exposed`, colonne
+  `component_PF_usage_ratio` (`try_element_at` pour éviter l'erreur ANSI sur une clé absente). Non exécuté.

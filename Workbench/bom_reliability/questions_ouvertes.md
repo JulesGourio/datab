@@ -206,3 +206,12 @@ La liste complète des questions métier, OP/OF et architecture (spec v2) est da
   de C : vérifier la correspondance avant d'ajouter la colonne (Genie X10).
 - **L9** : vrac = 4,5 % des lignes de réservation (1 299 composants) ; `SPLIT` = 2 783 lignes ; à décider.
 - **X1** : `planned_orders_and_work_order_stack_sap` n'est pas un historique : rien à réutiliser pour B.
+
+## Mise à jour 2026-10-13 (X10 et X11)
+
+- **L10** : périmètre IS : `Branch` (IS / AS) existe dans `material_master_data_plant_exposed` ; les 14 usines `2xxx` sont toutes IS,
+  mais des articles IS existent aussi dans les usines 1000 et 1900 (partagées avec AS). C filtre maintenant sur la branche
+  de l'AF (widget `branch`, `IS` par défaut). Types d'ordre ZP09, ZP10, ZP11, YP09, YP10, YP11 : gardés, à confirmer.
+- **L11** : « PF usage » livré en `component_PF_usage_ratio` : les clés du dictionnaire sont des centres de profit
+  opérationnels (100, 101, 116, 131, 227, 310…) ; le centre de profit d'un AF peut être un code chapeau (98A, 98M, 98D…)
+  absent du dictionnaire (valeur NULL). À confirmer avec le métier : faut-il prendre le centre de profit de l'OF ?
