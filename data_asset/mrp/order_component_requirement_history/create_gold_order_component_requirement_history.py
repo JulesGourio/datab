@@ -56,8 +56,10 @@ dbutils.library.restartPython()
 # MAGIC %md
 # MAGIC # Technical debt
 # MAGIC - Lab runs only, to remove before the move to Bitbucket: the `%pip install great_expectations` cell and its restart (the job task declares the library), `sys.path.insert(...)` (`leap_utils`) and the `persist` / `cache` patch (serverless) in the standard imports cell.
-# MAGIC - Landing zone stacks are read directly from Gold (no Bronze history table exists; the stacks are kept
-# MAGIC   indefinitely, so a full rebuild is always possible and `rebuild_mode = incremental` is only a cost optimisation).
+# MAGIC - `sys.path.insert(...)` in the standard imports cell is for lab runs only: remove it before the move to Bitbucket.
+# MAGIC - Landing zone stacks (`{REFERENCE_READ_ENV}_landingzone`) are read directly, not Bronze: Bronze `*_latest` keeps
+# MAGIC   one snapshot only. The stacks are kept indefinitely, so a full rebuild is always possible and
+# MAGIC   `rebuild_mode = incremental` is only a cost optimisation.
 # MAGIC - `sap_number()` adds a trim to what `table_utils.transform_float_column()` does: to be merged into `leap_utils`.
 # MAGIC - The first run after the move to a partitioned table (`snapshot_date`) must use `rebuild_mode = full`.
 # MAGIC - `sap_number()`, `month_starts()` are duplicated from `create_gold_bom_item_history`: move to `leap_utils`
@@ -228,7 +230,10 @@ if LAB_TARGET_SCHEMA:
 else:
     CATALOG = f"{PIPELINE_WRITE_ENV}_gold"
     SCHEMA = "mrp"
-DESTINATION_TABLE = "order_component_requirement_history"
+# A debug run (debug_plant or snapshot_from_date) holds a subset of the data: it writes to a separate table,
+# so that it can never overwrite the full history in the default table.
+DEBUG_RUN = bool(DEBUG_PLANT or SNAPSHOT_FROM_DATE)
+DESTINATION_TABLE = "order_component_requirement_history_debug" if DEBUG_RUN else "order_component_requirement_history"
 DESTINATION_TABLE_FULL_PATH = f"{CATALOG}.{SCHEMA}.{DESTINATION_TABLE}"
 
 INCREMENTAL_LOAD = REBUILD_MODE == "incremental" and table_utils.UnityCatalogCheckTableExists(

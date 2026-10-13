@@ -244,10 +244,15 @@ ISSUE_INDICATOR = "H"  # DC_indicator (SHKZG): H = credit = issue from stock (+)
 
 # COMMAND ----------
 
+# A debug run (debug_plant) holds a subset of the data: the Gold history notebooks wrote it to *_debug tables, so it
+# reads them and writes *_debug tables too, and never touches the full ones.
+DEBUG_SUFFIX = "_debug" if DEBUG_PLANT else ""
+
+
 def own_gold_table(schema, table):
     if LAB_TARGET_SCHEMA:
-        return f"{LAB_TARGET_SCHEMA}.{table}"
-    return f"{PIPELINE_WRITE_ENV}_gold.{schema}.{table}"
+        return f"{LAB_TARGET_SCHEMA}.{table}{DEBUG_SUFFIX}"
+    return f"{PIPELINE_WRITE_ENV}_gold.{schema}.{table}{DEBUG_SUFFIX}"
 
 
 def sap_number(column_name):
@@ -1105,8 +1110,8 @@ else:
     SCHEMA = DOMAIN
 
 OUTPUTS = [
-    (f"{UC_PREFIX}_bom_reliability_component", df_transf),
-    (f"{UC_PREFIX}_bom_reliability_work_order", df_work_order_out),
+    (f"{UC_PREFIX}_bom_reliability_component{DEBUG_SUFFIX}", df_transf),
+    (f"{UC_PREFIX}_bom_reliability_work_order{DEBUG_SUFFIX}", df_work_order_out),
 ]
 
 # COMMAND ----------

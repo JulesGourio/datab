@@ -1,0 +1,56 @@
+# Copie de référence du job, telle que transmise le 2026-10-13.
+# Identifiants d'instance et de service principal volontairement retirés.
+resources:
+  jobs:
+    W_3_SAP_AS_Design_BOM_DataAsset:
+      name: W_3_SAP_AS_Design_BOM_DataAsset
+      email_notifications:
+        on_failure:
+          - LEAP_Databricks_Alert@latecoere.aero
+          - eliot.vangoethem.external@latecoere.aero
+      tasks:
+        - task_key: create_BOM_silver
+          notebook_task:
+            notebook_path: data_asset/production/as_design_bom/as_design_BOM_bronze_to_silver
+            source: GIT
+          job_cluster_key: Job_cluster
+        - task_key: create_BOM_gold
+          depends_on:
+            - task_key: create_BOM_silver
+          notebook_task:
+            notebook_path: data_asset/production/as_design_bom/as_design_BOM_silver_to_gold
+            source: GIT
+          job_cluster_key: Job_cluster
+      job_clusters:
+        - job_cluster_key: Job_cluster
+          new_cluster:
+            spark_version: 15.4.x-scala2.12
+            spark_conf:
+              spark.databricks.cluster.profile: singleNode
+              spark.master: local[*, 4]
+            node_type_id: r6id.2xlarge
+            driver_node_type_id: r6id.2xlarge
+            custom_tags:
+              cluster-policy: M
+              activity-type: prod-job
+              ResourceClass: SingleNode
+            data_security_mode: SINGLE_USER
+            runtime_engine: STANDARD
+            num_workers: 0
+      git_source:
+        git_url: https://bitbucket.org/latecoere/leap-dbx-repository
+        git_provider: bitbucketCloud
+        git_branch: main
+      tags:
+        activity-type: prod-job
+        data-asset-domain: production
+        job-purpose: data-asset
+      queue:
+        enabled: true
+      parameters:
+        - name: pipeline_read_env
+          default: prod
+        - name: pipeline_write_env
+          default: prod
+        - name: reference_read_env
+          default: prod
