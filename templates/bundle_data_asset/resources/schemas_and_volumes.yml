@@ -1,0 +1,51 @@
+# =====================================================================================
+# TEMPLATE (OPTIONAL) — declare a SCHEMA and/or a VOLUME via the bundle.
+#
+# Use this when your data asset / project needs to CREATE its own output schema
+# (e.g. a proj schema) or a volume (e.g. to drop exports). Databricks creates them
+# at `bundle deploy` and manages their grants. Delete this file (and the
+# my_gold_catalog / my_proj_catalog variables in databricks.yml) if you don't need it.
+#
+# Modeled on platform/asset_bundle/sps_rfq_ingestion/resources/sps_rfq_setup.yml.
+# Catalogs resolve per target from the my_*_catalog variables ({env}_gold / {env}_proj).
+# =====================================================================================
+resources:
+
+  schemas:
+    # --- Output schema for the project layer (catalog = {env}_proj). ---
+    material_proj:                                   # <<< REPLACE >>> resource key
+      name: material_analysis                        # <<< REPLACE >>> schema name
+      catalog_name: ${var.my_proj_catalog}
+      comment: "Project schema for the Material Analysis data asset"   # <<< REPLACE >>>
+      grants:
+        - principal: Role-Project-LEAP-CoreDev
+          privileges:
+            - USE_SCHEMA
+            - SELECT
+
+  volumes:
+    # --- MANAGED volume (simplest: no storage_location, Databricks manages the location). ---
+    material_exports:                                # <<< REPLACE >>> resource key
+      name: material_exports                         # <<< REPLACE >>> volume name
+      catalog_name: ${var.my_proj_catalog}
+      schema_name: material_analysis                 # must match a schema above (or an existing one)
+      volume_type: MANAGED
+      comment: "Managed volume for Material Analysis exports"   # <<< REPLACE >>>
+      grants:
+        - principal: Role-Project-LEAP-CoreDev
+          privileges:
+            - READ_VOLUME
+            - WRITE_VOLUME
+
+    # --- EXTERNAL volume variant (uncomment; points at an S3 location). ---
+    # material_raw:
+    #   name: material_raw
+    #   catalog_name: ${var.my_proj_catalog}
+    #   schema_name: material_analysis
+    #   volume_type: EXTERNAL
+    #   storage_location: "s3://leap-s3-raw-weeu1-${var.pipeline_write_env}/apps/material_raw/"
+    #   comment: "External volume for Material raw files"
+    #   grants:
+    #     - principal: Role-Project-LEAP-CoreDev
+    #       privileges:
+    #         - READ_VOLUME

@@ -527,6 +527,8 @@ Landing Zone convention.
 
 ## 11. Jobs & orchestration (DAB)
 
+Reference template for any job or bundle: `templates/bundle_data_asset/` (copy the folder, rename, replace the `<<< REPLACE >>>` markers). It holds the cluster-policy matrix per environment, the naming, the tags and the notification settings every job must have.
+
 One DAB per job in `platform/asset_bundle/<asset_name>/` (`databricks.yml` + `resources/<name>_job.yml`).
 
 **Job name:** `<JOB_LAUNCH>_<ORCHESTRATION_LEVEL>_<DOMAIN>_<JOB_PURPOSE>`, `First_Second_Third` casing.

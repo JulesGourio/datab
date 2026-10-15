@@ -1,0 +1,66 @@
+# =====================================================================================
+# TEMPLATE (OPTIONAL) — MONTHLY SNAPSHOT job. Illustrates the FREQ letter = M (Monthly).
+#
+# Job name pattern:  M_5_<Source>_<UC>_<Name>_Snapshot
+#   Same shape as the project job, but with its own MONTHLY schedule.
+#   Delete this file if you do not need a periodic snapshot.
+#   (For a WEEKLY job use the letter W and a weekly cron, e.g. "0 0 6 ? * MON".)
+# =====================================================================================
+resources:
+  jobs:
+    snapshot:                                            # <<< REPLACE >>> resource key
+      name: M_5_SAP_UC070_Material_Analysis_Snapshot     # <<< REPLACE >>> M_5_<Source>_<UC>_<Name>_Snapshot
+
+      schedule:
+        quartz_cron_expression: "0 0 9 1 * ?"            # 1st of every month at 09:00
+        timezone_id: "Europe/Brussels"
+        pause_status: "UNPAUSED"
+
+      email_notifications:
+        on_failure:
+          - ${var.notification_email}
+      notification_settings:
+        no_alert_for_canceled_runs: true
+
+      tasks:
+        - task_key: Setup_Cluster
+          notebook_task:
+            notebook_path: unity_catalog/Utils/Jobs/Setup cluster
+            source: GIT
+          job_cluster_key: snapshot_cluster
+
+        - task_key: 1-Create_Proj_MaterialSnapshot        # <<< REPLACE >>>
+          depends_on:
+            - task_key: Setup_Cluster
+          notebook_task:
+            notebook_path: proj/uc070_material_analysis/create_proj_material_snapshot  # <<< REPLACE >>>
+            base_parameters:
+              pipeline_read_env: ${var.pipeline_read_env}
+              pipeline_write_env: ${var.pipeline_write_env}
+              reference_read_env: ${var.reference_read_env}
+            source: GIT
+          job_cluster_key: snapshot_cluster
+
+      job_clusters:
+        - job_cluster_key: snapshot_cluster
+          new_cluster:
+            policy_id: ${var.job_cluster_policy_id_S}
+            apply_policy_default_values: true
+            spark_version: 17.3.x-scala2.13
+
+      git_source:
+        git_url: https://bitbucket.org/latecoere/leap-dbx-repository
+        git_provider: bitbucketCloud
+        git_branch: ${var.git_branch}
+
+      tags:
+        activity-type: ${var.pipeline_write_env}-job
+        job-purpose: project
+        data-asset-domain: supply-chain-procurement     # <<< REPLACE >>>
+        project-name: uc070-material-analysis           # <<< REPLACE >>>
+
+      queue:
+        enabled: true
+
+      run_as:
+        service_principal_name: ${var.dbx_service_principal}

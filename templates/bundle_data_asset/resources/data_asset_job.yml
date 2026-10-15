@@ -1,0 +1,108 @@
+# =====================================================================================
+# TEMPLATE — DATA ASSET job (silver -> gold) on a classic cluster.
+#
+# Job name pattern:  <FREQ>_2_<Source>_<Asset>_Data_Asset
+#   FREQ = D (daily OR table-update triggered)  |  W (weekly)  |  M (monthly)
+#   example below: D_2 = daily / table-update.  Rename everything marked <<< REPLACE >>>.
+#
+# Task chain: Setup_Cluster -> 1-Create_Silver_* -> 2-Create_Gold_* -> [3-Run_*_Project]
+# All notebooks are read from Git (Bitbucket Cloud) at ${var.git_branch}.
+# =====================================================================================
+resources:
+  jobs:
+    data_asset:                                   # <<< REPLACE >>> resource key (lowercase, unique in bundle)
+      name: D_2_SAP_Material_Master_Data_Asset    # <<< REPLACE >>> <FREQ>_2_<Source>_<Asset>_Data_Asset
+
+      # --- Trigger: pick ONE.
+      # (a) DAILY schedule (letter D). Adjust the cron / timezone.
+      schedule:
+        quartz_cron_expression: "0 0 6 * * ?"     # every day at 06:00
+        timezone_id: "Europe/Brussels"
+        pause_status: "UNPAUSED"
+      # (b) TABLE-UPDATE trigger (also letter D) — replace the `schedule:` block above with:
+      #   trigger:
+      #     table_update:
+      #       table_names:
+      #         - ${var.pipeline_read_env}_bronze.<schema>.<table>     # up to 10 tables
+      #       condition: ANY_UPDATED
+
+      email_notifications:
+        on_failure:
+          - ${var.notification_email}
+      notification_settings:
+        no_alert_for_canceled_runs: true
+
+      tasks:
+        # 1) Warm up the classic cluster (mandatory first task in every LEAP job).
+        - task_key: Setup_Cluster
+          notebook_task:
+            notebook_path: unity_catalog/Utils/Jobs/Setup cluster
+            source: GIT
+          job_cluster_key: data_asset_cluster
+
+        # 2) SILVER — one task per silver notebook. Duplicate as needed.
+        - task_key: 1-Create_Silver_MaterialMaster          # <<< REPLACE >>>
+          depends_on:
+            - task_key: Setup_Cluster
+          notebook_task:
+            notebook_path: data_asset/supply_chain_procurement/material_master/create_silver_material_master  # <<< REPLACE >>>
+            base_parameters:
+              pipeline_write_env: ${var.pipeline_write_env}
+              reference_read_env: ${var.reference_read_env}
+            source: GIT
+          job_cluster_key: data_asset_cluster
+
+        # 3) GOLD — depends on the silver task(s) it consumes.
+        - task_key: 2-Create_Gold_MaterialMaster            # <<< REPLACE >>>
+          depends_on:
+            - task_key: 1-Create_Silver_MaterialMaster
+          notebook_task:
+            notebook_path: data_asset/supply_chain_procurement/material_master/create_gold_material_master    # <<< REPLACE >>>
+            base_parameters:
+              pipeline_write_env: ${var.pipeline_write_env}
+              reference_read_env: ${var.reference_read_env}
+            source: GIT
+          job_cluster_key: data_asset_cluster
+
+        # 4) OPTIONAL — chain the downstream PROJECT job (see project_job.yml).
+        #    Remove this task if the data asset has no project layer.
+        - task_key: 3-Run_Material_Project
+          depends_on:
+            - task_key: 2-Create_Gold_MaterialMaster
+          run_job_task:
+            job_id: ${resources.jobs.project.id}            # references the project job's resource key
+            job_parameters:
+              pipeline_read_env: ${var.pipeline_read_env}
+              pipeline_write_env: ${var.pipeline_write_env}
+              reference_read_env: ${var.reference_read_env}
+
+      # --- One classic (non-serverless) cluster shared by all tasks.
+      #     Pick the size by swapping the policy var. SINGLE-NODE sizes: XS/S/M/L.
+      #     MULTI-NODE sizes: *_MULTI (add the autoscale block below).
+      job_clusters:
+        - job_cluster_key: data_asset_cluster
+          new_cluster:
+            policy_id: ${var.job_cluster_policy_id_S}   # <<< REPLACE size if needed (XS/S/M/M_MULTI/L/L_MULTI/XL_MULTI)
+            apply_policy_default_values: true           # inherit node_type, tags, etc. from the policy
+            spark_version: 17.3.x-scala2.13
+            # For a *_MULTI size, uncomment autoscale (single-node sizes omit it):
+            # autoscale:
+            #   min_workers: 1
+            #   max_workers: 2
+
+      git_source:
+        git_url: https://bitbucket.org/latecoere/leap-dbx-repository
+        git_provider: bitbucketCloud
+        git_branch: ${var.git_branch}
+
+      tags:
+        activity-type: ${var.pipeline_write_env}-job   # REQUIRED by the cluster policy (propagates to the cluster)
+        job-purpose: data-asset
+        data-asset-domain: supply-chain-procurement     # <<< REPLACE >>>
+        data-asset-group: da-material-master            # <<< REPLACE >>>
+
+      queue:
+        enabled: true
+
+      run_as:
+        service_principal_name: ${var.dbx_service_principal}
