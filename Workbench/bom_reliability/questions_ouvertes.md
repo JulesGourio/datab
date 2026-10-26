@@ -215,3 +215,7 @@ La liste complète des questions métier, OP/OF et architecture (spec v2) est da
 - **L11** : « PF usage » livré en `component_PF_usage_ratio` : les clés du dictionnaire sont des centres de profit
   opérationnels (100, 101, 116, 131, 227, 310…) ; le centre de profit d'un AF peut être un code chapeau (98A, 98M, 98D…)
   absent du dictionnaire (valeur NULL). À confirmer avec le métier : faut-il prendre le centre de profit de l'OF ?
+
+## Décision 2026-10-26
+
+- **L10** : pas de filtre de branche par défaut (toutes les branches). Le widget `branch` de C reste disponible (`IS` ou `AS`).

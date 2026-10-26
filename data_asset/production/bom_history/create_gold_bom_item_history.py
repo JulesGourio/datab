@@ -60,7 +60,6 @@ dbutils.library.restartPython()
 # MAGIC %md
 # MAGIC # Technical debt
 # MAGIC - Lab runs only, to remove before the move to Bitbucket: the `%pip install great_expectations` cell and its restart (the job task declares the library), `sys.path.insert(...)` (`leap_utils`) and the `persist` / `cache` patch (serverless) in the standard imports cell.
-# MAGIC - `sys.path.insert(...)` in the standard imports cell is for lab runs only: remove it before the move to Bitbucket.
 # MAGIC - Landing zone stacks (`{REFERENCE_READ_ENV}_landingzone`) are read directly, not Bronze: Bronze `*_latest` keeps
 # MAGIC   one snapshot only. The stacks are kept indefinitely, so a full rebuild is always possible and
 # MAGIC   `rebuild_mode = incremental` is only a cost optimisation.

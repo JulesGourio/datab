@@ -17,7 +17,7 @@ la mise en production (job, DAS, Test Definition, PowerBI).
 | Mode incrémental A / B | ✅ Écrit | partition `snapshot_date`, `replace_where` ; non testé en lab |
 | Tables de debug | ✅ | A, B, C écrivent `*_debug` en mode debug, jamais dans les tables complètes |
 | Widgets | ✅ | Une seule cellule, valeurs conservées en relançant |
-| Périmètre branche IS | ✅ Écrit (widget `branch`) | Non testé en lab |
+| Filtre de branche optionnel | ✅ Écrit (widget `branch`, vide par défaut = toutes) | Non testé en lab |
 | « PF usage » | ✅ Écrit (`component_PF_usage_ratio`) | Non testé en lab |
 | Description du centre de profit | ✅ Corrigé (zéros de tête) | Non testé en lab |
 | Analyse des 8 notebooks existants | ✅ | Pas de travail en double ; l'historique de la prévision manquait partout |
@@ -46,7 +46,7 @@ la mise en production (job, DAS, Test Definition, PowerBI).
 
 ## 5. Prochaines étapes
 
-1. Relancer A, B, C en debug (usine 2400, `branch = IS`) pour valider les derniers correctifs, puis en complet.
+1. Relancer A, B, C en debug (usine 2400, `branch` vide) pour valider les derniers correctifs, puis en complet.
 2. Faire trancher les points du §4 par le métier ; appliquer les règles retenues dans C.
 3. Rédiger le DAS et la Test Definition (exemples témoins), obligatoires avant Bitbucket.
 4. Écrire le bundle du job (`platform/asset_bundle/`, mensuel : A et B en parallèle, puis C), en `rebuild_mode = incremental`.
@@ -55,6 +55,6 @@ la mise en production (job, DAS, Test Definition, PowerBI).
 
 ## 6. Ce qui n'a pas pu être vérifié
 
-Aucun notebook ne peut être exécuté depuis ce dépôt. Les derniers changements de C (branche IS, « PF usage »,
+Aucun notebook ne peut être exécuté depuis ce dépôt. Les derniers changements de C (filtre de branche, « PF usage »,
 description du centre de profit, lecture des tables `*_debug`), le mode incrémental et le modèle d'historisation
 n'ont été vérifiés que par relecture et contrôle de syntaxe.

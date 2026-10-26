@@ -2,7 +2,7 @@
 
 ## 1. Le besoin
 
-Pour chaque article fabriqué (AF) de la branche **IS** (interconnexion), mesurer si la BOM connue à une date T0 a
+Pour chaque article fabriqué (AF) (toutes branches ; la demande vise la branche IS, filtre optionnel `branch`), mesurer si la BOM connue à une date T0 a
 bien prévu ce qui a été réellement consommé par les ordres de fabrication (OF) commencés après T1 et terminés avant T2.
 
 - Fiabilité d'un AF = 100 % − moyenne, sur ses composants, de |prévision − consommation| / max(prévision, consommation).
@@ -40,7 +40,7 @@ Ordre : A, puis B, puis C. Paramètres pour A et B :
  "log_level": "info", "snapshot_from_date": "", "debug_plant": "", "rebuild_mode": "full"}
 ```
 
-Pour C : mêmes paramètres sans `snapshot_from_date` ni `rebuild_mode`, avec `branch = IS`.
+Pour C : mêmes paramètres sans `snapshot_from_date` ni `rebuild_mode`, avec `branch` vide (toutes les branches ; `IS` pour se limiter à l'interconnexion).
 
 - **Run rapide** : `debug_plant = 2400` (et `snapshot_from_date = 2025-01-01` pour A et B). A et B écrivent alors
   dans `*_debug`, et C (avec le même `debug_plant`) lit et écrit des tables `*_debug`.
@@ -54,6 +54,8 @@ Pour C : mêmes paramètres sans `snapshot_from_date` ni `rebuild_mode`, avec `b
 | Fichier | Contenu |
 |---|---|
 | `rapport_avancement.md` | Où en est le projet, ce qui reste à faire |
+| `guide_notebook_bom_item_history.md` | Présentation du notebook A cellule par cellule, avec les pourquoi et les questions métier |
+| `instructions_projet_bom_reliability.md` | Instructions et fichiers pour un projet Claude dédié « BOM Reliability » |
 | `spec_technique_historisation_bom.md` | Spécification technique détaillée (v5) |
 | `questions_ouvertes.md` | Toutes les questions et décisions, avec niveau de blocage |
 | `corrections_log.md` | Résultats des runs de lab et corrections |
