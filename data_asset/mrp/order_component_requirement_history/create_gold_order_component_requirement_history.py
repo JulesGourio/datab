@@ -830,7 +830,7 @@ try:
         )
 except AnalysisException as e:
     log.error(
-        f"Table {DESTINATION_TABLE_FULL_PATH} has not been created, an error occured during saveAsTable. \nError is {e}"
+        f"Table {DESTINATION_TABLE_FULL_PATH} has not been created, an error occurred while saving it. \nError is {e}"
     )
     raise
 else:

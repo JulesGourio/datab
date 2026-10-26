@@ -90,6 +90,7 @@ Workbench/<asset>/working/          # corrections_log
                                     # exception: Workbench/bom_reliability/ is flat (one folder: spec, logs, existing notebooks)
 leap_utils/                         # shared library (own PR rules, see §14)
 templates/                          # notebook / bundle templates (start from these)
+                                    # notebook_gold_history_template.py: monthly history from landing-zone *_stack tables
 examples/gold/                      # reference notebook (verbatim, see §3.4)
 ```
 

@@ -1188,7 +1188,7 @@ for destination_table, df_output in OUTPUTS:
         )
     except AnalysisException as e:
         log.error(
-            f"Table {destination_table_full_path} has not been created, an error occured during saveAsTable. \nError is {e}"
+            f"Table {destination_table_full_path} has not been created, an error occurred while saving it. \nError is {e}"
         )
         raise
     else:
