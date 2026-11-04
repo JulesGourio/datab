@@ -1,0 +1,85 @@
+# =====================================================================================
+# TEMPLATE — PROJECT job (consumption / business layer, proj/ notebooks).
+#
+# Job name pattern:  <FREQ>_5_<Source>_<UC>_<Name>_Project
+#   example: D_5 = daily. Triggered here as a child of the data asset job
+#   (run_job_task in data_asset_job.yml), so it has NO schedule of its own.
+#   If it should run on its own daily schedule instead, add a `schedule:` block
+#   and remove the run_job_task from data_asset_job.yml.
+# =====================================================================================
+resources:
+  jobs:
+    project:                                         # <<< REPLACE >>> resource key (must match run_job_task in data_asset_job.yml)
+      name: D_5_SAP_UC070_Material_Analysis_Project  # <<< REPLACE >>> <FREQ>_5_<Source>_<UC>_<Name>_Project
+
+      # Parameters passed in by the parent data asset job (run_job_task.job_parameters),
+      # or used directly when run standalone.
+      parameters:
+        - name: pipeline_read_env
+          default: ${var.pipeline_read_env}
+        - name: pipeline_write_env
+          default: ${var.pipeline_write_env}
+        - name: reference_read_env
+          default: ${var.reference_read_env}
+
+      email_notifications:
+        on_failure:
+          - ${var.notification_email}
+      notification_settings:
+        no_alert_for_canceled_runs: true
+
+      tasks:
+        - task_key: Setup_Cluster
+          notebook_task:
+            notebook_path: unity_catalog/Utils/Jobs/Setup cluster
+            source: GIT
+          job_cluster_key: project_cluster
+
+        - task_key: 1-Create_Proj_MaterialAnalysis          # <<< REPLACE >>>
+          depends_on:
+            - task_key: Setup_Cluster
+          notebook_task:
+            notebook_path: proj/uc070_material_analysis/create_proj_material_analysis  # <<< REPLACE >>>
+            base_parameters:
+              pipeline_read_env: "{{job.parameters.pipeline_read_env}}"
+              pipeline_write_env: "{{job.parameters.pipeline_write_env}}"
+              reference_read_env: "{{job.parameters.reference_read_env}}"
+            source: GIT
+          job_cluster_key: project_cluster
+
+        # OPTIONAL — refresh a PowerBI semantic model after the proj tables are built.
+        # Remove if unused (and leave pbi_* vars at "0").
+        - task_key: PBI_Refresh_MaterialAnalysis
+          depends_on:
+            - task_key: 1-Create_Proj_MaterialAnalysis
+          notebook_task:
+            notebook_path: common_notebooks/launch_pbi_dataset_refresh
+            base_parameters:
+              workspace_id: ${var.pbi_workspace_id}
+              dataset_id: ${var.pbi_semantic_model_id}
+            source: GIT
+          job_cluster_key: project_cluster
+
+      job_clusters:
+        - job_cluster_key: project_cluster
+          new_cluster:
+            policy_id: ${var.job_cluster_policy_id_S}
+            apply_policy_default_values: true
+            spark_version: 17.3.x-scala2.13
+
+      git_source:
+        git_url: https://bitbucket.org/latecoere/leap-dbx-repository
+        git_provider: bitbucketCloud
+        git_branch: ${var.git_branch}
+
+      tags:
+        activity-type: ${var.pipeline_write_env}-job
+        job-purpose: project
+        data-asset-domain: supply-chain-procurement     # <<< REPLACE >>>
+        project-name: uc070-material-analysis           # <<< REPLACE >>>
+
+      queue:
+        enabled: true
+
+      run_as:
+        service_principal_name: ${var.dbx_service_principal}

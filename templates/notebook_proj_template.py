@@ -64,19 +64,50 @@ from great_expectations.dataset import SparkDFDataset
 
 # COMMAND ----------
 
+# Values already typed in the widgets are kept when this cell is run again (removeAll resets them).
+WIDGET_NAMES = [
+    "pipeline_write_env",
+    "pipeline_read_env",
+    "reference_read_env",
+    "by_pass_quality_checks",
+    "lab_target_schema",
+    "debug",
+    "log_level",
+]
+PREVIOUS_WIDGET_VALUES = {}
+for widget_name in WIDGET_NAMES:
+    try:
+        PREVIOUS_WIDGET_VALUES[widget_name] = dbutils.widgets.get(widget_name)
+    except Exception:
+        pass
+
 dbutils.widgets.removeAll()  # must be the first widget call
 
-dbutils.widgets.text("pipeline_write_env", "dev")
+dbutils.widgets.text("pipeline_write_env", PREVIOUS_WIDGET_VALUES.get("pipeline_write_env", "dev"))
 PIPELINE_WRITE_ENV = dbutils.widgets.get("pipeline_write_env")
 
-dbutils.widgets.text("pipeline_read_env", "dev")
+dbutils.widgets.text("pipeline_read_env", PREVIOUS_WIDGET_VALUES.get("pipeline_read_env", "dev"))
 PIPELINE_READ_ENV = dbutils.widgets.get("pipeline_read_env")
 
-dbutils.widgets.text("reference_read_env", "prod")
+dbutils.widgets.text("reference_read_env", PREVIOUS_WIDGET_VALUES.get("reference_read_env", "prod"))
 REFERENCE_READ_ENV = dbutils.widgets.get("reference_read_env")
 
-dbutils.widgets.text("by_pass_quality_checks", "false")
+dbutils.widgets.text("by_pass_quality_checks", PREVIOUS_WIDGET_VALUES.get("by_pass_quality_checks", "false"))
 BYPASS_QUALITY_CHECKS = dbutils.widgets.get("by_pass_quality_checks").lower() == "true"
+
+# Lab test runs only: "<catalog>.<schema>" of the lab redirects every table this notebook writes.
+# Always empty in jobs; never commit a non-empty default (hardcoded env = Convention Checker BLOCKER).
+dbutils.widgets.text("lab_target_schema", PREVIOUS_WIDGET_VALUES.get("lab_target_schema", ""))
+LAB_TARGET_SCHEMA = dbutils.widgets.get("lab_target_schema").strip()
+
+# All widgets are created in this cell so that none disappears when it is run again.
+dbutils.widgets.text("debug", PREVIOUS_WIDGET_VALUES.get("debug", "False"))
+
+dbutils.widgets.dropdown(
+    "log_level",
+    defaultValue=PREVIOUS_WIDGET_VALUES.get("log_level", "info"),
+    choices=["debug", "info", "warning", "error", "critical"],
+)
 
 # COMMAND ----------
 
@@ -85,14 +116,8 @@ BYPASS_QUALITY_CHECKS = dbutils.widgets.get("by_pass_quality_checks").lower() ==
 
 # COMMAND ----------
 
-dbutils.widgets.text("debug", "False")
 DEBUG = dbutils.widgets.get("debug").lower() == "true"
 
-dbutils.widgets.dropdown(
-    "log_level",
-    defaultValue="info",
-    choices=["debug", "info", "warning", "error", "critical"],
-)
 LOG_LEVEL = dbutils.widgets.get("log_level")
 
 # COMMAND ----------
@@ -184,8 +209,11 @@ gx_validation.validate_and_log_gx_results(
 
 # COMMAND ----------
 
-CATALOG = f"{PIPELINE_WRITE_ENV}_proj"
-SCHEMA = DOMAIN
+if LAB_TARGET_SCHEMA:
+    CATALOG, SCHEMA = LAB_TARGET_SCHEMA.split(".")
+else:
+    CATALOG = f"{PIPELINE_WRITE_ENV}_proj"
+    SCHEMA = DOMAIN
 DESTINATION_TABLE = "uc<number>_<table_name>"
 DESTINATION_TABLE_FULL_PATH = f"{CATALOG}.{SCHEMA}.{DESTINATION_TABLE}"
 

@@ -1,0 +1,220 @@
+BOM RELIABILITY (UC93) — PRÉVISIONS, CONSOMMATIONS, SOURCES ET AVERAGE BOM
+=========================================================================
+
+1. LA MESURE EN UNE PAGE
+------------------------
+- Question métier : la BOM qui était dans SAP AVANT la production prévoyait-elle bien ce qui a été réellement consommé ?
+- Pour chaque article fabriqué (AF), on compare une PRÉVISION connue à une date T0 avec la CONSOMMATION réelle
+  des ordres de fabrication (OF) commencés après T1 et terminés avant T2.
+- Dates :
+  - T0 = toujours un 1er du mois (snapshot mensuel).
+  - Par défaut T1 = T0 + 6 mois, T2 = T1 + 3 mois. Option : T1 = T0 + 3 mois, T2 = T1 + 3 mois.
+  - T2 n'est jamais dans le futur.
+  - Exemple : T0 = 01/01/2026 → OF commencés à partir du 01/07/2026 et terminés au plus tard le 01/10/2026.
+- Erreur d'un composant = |prévision − consommation| / max(prévision, consommation).
+  - Les deux à 0 → erreur 0. Consommation négative (plus de retours que de sorties) → comptée 0.
+- Fiabilité d'un AF (ou d'un centre de profit) = 100 % − moyenne des erreurs de ses composants.
+- Fiabilité par défaut : Prévision 2 contre Conso 2. Également calculées : Prév. 2 / Conso 1, Prév. 1 / Conso 1,
+  Prév. 3 / Conso 2.
+- Statut d'un composant (paire par défaut) : SURSTOCK si prévision > conso, MANQUANT si prévision < conso, OK sinon.
+
+2. LES TROIS NOTEBOOKS ET LEURS TABLES
+-------------------------------------
+- A — create_gold_bom_item_history → {env}_gold.production.bom_item_history (+ vue _exposed)
+  La BOM telle que SAP la connaissait au 1er de chaque mois (depuis 05/2023). Sert à la Prévision 3.
+- B — create_gold_order_component_requirement_history → {env}_gold.mrp.order_component_requirement_history
+  Les besoins ouverts des ordres planifiés (OP) et des OF au 1er de chaque mois (depuis 10/2023). Sert aux Prévisions 1 et 2.
+- C — create_proj_bom_reliability → {env}_proj.supply_chain.uc093_bom_reliability_component (1 ligne par période ×
+  usine × AF × composant) et uc093_bom_reliability_work_order (1 ligne par période × OF).
+- Pourquoi A et B : SAP et les tables Bronze *_latest ne gardent que l'état du jour. L'historique n'existe que dans
+  les piles de la landing zone prod_landingzone.sap_latecoere_ecc6.*_stack (une extraction SAP complète par date,
+  jamais purgées). Pour chaque 1er du mois K, on prend la dernière extraction strictement avant K.
+- La consommation n'a pas besoin d'historique : les mouvements de stock sont un journal daté.
+
+3. LE PÉRIMÈTRE DES OF (commun à toutes les mesures)
+---------------------------------------------------
+Source : prod_gold.production.work_orders_sap_exposed
+- Colonnes utilisées : work_order_number, material_number (AF), plant, profit_center, work_order_type,
+  planned_order_link (OP d'origine), quantity_planned (quantité finale de l'OF, = GAMNG), real_start_date,
+  real_end_date, is_cancelled.
+- Règles :
+  - OF non annulé, avec dates réelles de début et de fin.
+  - real_start_date >= T1 et real_end_date <= T2.
+  - Option : widget branch (IS ou AS, vide par défaut = toutes) via la colonne Branch de
+    prod_gold.master_data.material_master_data_plant_exposed (branche de l'AF dans son usine).
+  - Option lab : debug_plant (une seule usine).
+- Source de prévision de chaque OF à T0 :
+  - l'OF existait déjà à T0 → ses propres réservations (WORK_ORDER_AT_T0) ;
+  - sinon son OP d'origine existait à T0 → les réservations de l'OP (PLANNED_ORDER_AT_T0) ;
+  - sinon → aucune prévision (NONE), l'OF est listé mais hors calcul (44 % des OF en lab, usine 2400).
+- Mise à l'échelle des Prévisions 1 et 2 : × volume_scaling_factor = quantité finale de l'OF / quantité de l'OF ou
+  de l'OP à T0. But : mesurer la BOM et non le changement de volume (à confirmer avec le métier).
+
+4. PRÉVISION 1 — BOM BRUTE DES OP / OF (rebut compris)
+-----------------------------------------------------
+- Définition (demande) : « BOM brute des OP/OF ».
+- Ce qu'on prend : la quantité de besoin de chaque ligne de réservation de l'OF ou de l'OP, telle qu'elle était à T0.
+  Elle contient le rebut composant appliqué par SAP.
+- Sources (lues par le notebook B) :
+  - prod_landingzone.sap_latecoere_ecc6.resb_stack (réservations)
+    - bdart : AR = besoin d'OF, SB = besoin d'OP.
+    - bdmng : quantité de besoin (avec rebut) → PRÉVISION 1.
+    - esmng : quantité sans rebut composant → PRÉVISION 2.
+    - matnr, werks : composant, usine. aufnr / plnum : OF / OP. rsnum, rspos : réservation, poste.
+    - ausch : % de rebut composant. dumps : ligne fantôme. schgt : vrac. postp, posnr : catégorie et numéro de poste.
+    - Filtres « besoin ouvert » : xloek (supprimé) ≠ X, kzear (soldé) ≠ X, enmng (déjà sorti) = 0,
+      date de besoin bdter <= T0 + 13 mois.
+    - Particularité : deux familles de fichiers (SAP-RESB-F-ACT et SAP-RESB-F-NOACT), extraites à quelques secondes
+      d'écart ; on prend la dernière de chaque famille avant le 1er du mois et on les réunit.
+  - prod_landingzone.sap_latecoere_ecc6.plaf_stack (en-têtes des OP) : plnum, matnr, plwrk, gsmng (quantité),
+    avmng, psttr / pedtr (dates), paart, stlan, stalt (alternative de BOM de l'OP), verid.
+  - prod_landingzone.sap_latecoere_ecc6.afko_stack (en-têtes des OF) : aufnr, gamng (quantité), gasmg (rebut),
+    gstrp / gltrp (dates), stlan, stlal (alternative de BOM de l'OF).
+  - prod_landingzone.sap_latecoere_ecc6.afpo_stack (poste d'OF) : aufnr, matnr, plnum (OP d'origine), verid.
+- Calcul (notebook C) : somme de bdmng par OF et composant, sans les lignes fantômes (dumps = X, SAP a déjà mis
+  leurs composants à leur place) ni les postes document / texte (postp D, T), × volume_scaling_factor.
+
+5. PRÉVISION 2 — BOM DES OP / OF SANS LES AJUSTEMENTS (sans rebut)
+-----------------------------------------------------------------
+- Définition (demande) : « BOM des OP/OF sans les ajustements (TBD % de rebut) ».
+- Ce qu'on prend : les mêmes lignes de réservation que la Prévision 1, mais la quantité SANS rebut composant
+  (RESB.esmng). Vérifié sur échantillon : bdmng = esmng × (1 + ausch) arrondi au-dessus.
+- Sources : identiques à la Prévision 1 (resb_stack, plaf_stack, afko_stack, afpo_stack via B).
+- Calcul : somme de esmng par OF et composant, mêmes exclusions, × volume_scaling_factor.
+- Ce que les données ont montré sur le rebut :
+  - 83 % du rebut des réservations vient de la fiche article (MARC.kausf), 17 % est saisi à la main, ~0 du poste de BOM.
+  - Le rebut d'ensemble de l'AF (MARC.ausss) n'est jamais appliqué aux OF (gasmg = 0).
+  - Le rebut d'ensemble des articles achetés n'atteint jamais les OF (il ne sert qu'aux achats).
+- À confirmer : sur les OP (SB), esmng a-t-il le même sens que sur les OF ?
+
+6. PRÉVISION 3 — BOM STANDARD (connue à T0)
+------------------------------------------
+- Définition (demande) : « BOM standard ».
+- Ce qu'on prend : la BOM de l'AF telle qu'elle était dans SAP au 1er du mois T0, appliquée à la quantité finale de l'OF.
+- Sources (lues par le notebook A) :
+  - prod_landingzone.sap_latecoere_ecc6.stpo_stack (postes) : stlnr, stlkn, posnr, postp, idnrk (composant),
+    menge (quantité), meins (unité), ausch (rebut du poste), fmeng (quantité fixe), schgt (vrac), datuv, aennr,
+    vgknt, lkenz. Hebdomadaire depuis 23/04/2023.
+  - stko_stack (en-tête) : bmeng (quantité de base), bmein, stlst (statut ; 02 et vide exclus), lkenz. Hebdomadaire.
+  - stas_stack (affectation poste → alternative) : stlal, stlkn, stasz, datuv, andat, lkenz. Quotidien depuis
+    11/06/2024 (avant : première extraction réutilisée, « rétro-datée »).
+  - mast_stack (AF ↔ BOM) : matnr, werks, stlan (usage 1 = production), stlnr, stlal, losvn / losbs (taille de lot),
+    andat. Quotidien depuis 11/06/2024.
+  - marc_stack (article × usine) : sobsl (50 = fantôme), kausf (rebut composant de l'article), ausss (rebut d'ensemble).
+    Extractions FULL seulement.
+  - marm_stack (conversions d'unités) : meinh, umrez, umren. FULL seulement.
+  - prod_bronze.sap_latecoere_ecc6.mara_latest (unité de base, actuelle) et makt_latest (description, FR puis EN).
+- Règles clés de A :
+  - catégorie de BOM stlty = M seulement (stlnr n'est unique que par catégorie) ;
+  - modification d'ingénierie = nouveau nœud ; on garde le dernier enregistrement STAS / STKO connu et on écarte les
+    suppressions (sinon double comptage) ;
+  - quantité convertie en unité de base (MARM, sinon facteur ISO, sinon NULL).
+- Calcul (notebook C) :
+  - quantité par pièce = quantité du poste en unité de base / quantité de base de la BOM × (1 + rebut) ;
+  - rebut = celui du poste (ausch), sinon celui de la fiche article (kausf) — la règle SAP ;
+  - Prévision 3 = quantité par pièce × quantité finale de l'OF ; un poste à quantité fixe compte une fois par OF ;
+  - alternative = celle de l'OF ou de l'OP à T0 (AFKO.stlal, PLAF.stalt), sinon la plus basse ;
+  - fantômes (sobsl = 50) éclatés jusqu'à 5 niveaux, avec le poste 9999 ;
+  - rebut d'ensemble de l'AF (ausss) non ajouté.
+
+7. CONSO 1 — TOUS LES CODES DE MOUVEMENT
+---------------------------------------
+- Définition (demande) : « tous les codes de mouvements ».
+- Source : prod_gold.supply_chain_logistic.part_movement_exposed
+  - Colonnes : Work_order, Material_number, Plant, Movement_type, Quantity (déjà en unité de base, vérifié),
+    DC_indicator (H = sortie de stock, S = entrée / retour).
+- Calcul : pour chaque OF du périmètre et chaque composant, somme des quantités signées :
+  sortie (H) = +, retour (S) = −. Exclus : 101, 102, 122 (entrée en stock de l'AF lui-même) et l'AF comme composant.
+- Pas de FIFO : le mouvement porte directement le numéro d'OF. La matière en vrac est lue comme le reste.
+
+8. CONSO 2 — MOUVEMENTS « NOMINAUX » (sans la casse)
+---------------------------------------------------
+- Définition (demande) : « mouvements de stocks nominaux (TBD sans la casse, etc.) ».
+- Source : la même (part_movement_exposed).
+- Calcul actuel : seulement 261 (sortie pour OF) et 262 (annulation de 261), signés.
+- Pourquoi rien de plus : la casse n'est pas repérable. Pas de motif de mouvement (grund) dans la Gold ; SAP n'a
+  pas de code de mouvement « casse » imputé aux OF.
+- Piste (non appliquée) : exclure les sorties faites sur des lignes de réservation ajoutées à la main.
+  - Sources nécessaires : prod_gold.supply_chain_logistic.part_movement (non exposée, colonnes MSEG_rsnum, MSEG_rspos)
+    + prod_gold.mrp.sap_mrp_reservation_latest (RESB_postp).
+  - Selon le POC Average BOM : postp 1 = pièce manquante, 2 à 5 = surconsommation. Genie donne d'autres sens.
+  - Impact mesuré : 0,68 % de la quantité 261 (2 à 5), 0,18 % (1). À faire confirmer par le métier.
+
+9. CONSO 3 — CONSO 2 + RÉGULARISATION DE STOCK PAR CENTRE DE PROFIT
+------------------------------------------------------------------
+- Définition (demande) : « Conso2 + régularisation de stock en proportion du centre de profit (méthode TBD) ».
+- État : NON CALCULÉE (colonne vide).
+- Pourquoi : les écarts d'inventaire (mouvements 701 / 702) ne sont jamais imputés à un OF ; il faut une règle de
+  répartition.
+- Piste de méthode (à valider) :
+  - écarts d'inventaire d'un composant sur la période (part_movement, mouvements 701 / 702, par composant et usine) ;
+  - répartis entre centres de profit selon PF_pourcentage_affectation du composant
+    (prod_gold.master_data.material_plant_exposed ou material_master_data_plant_exposed, dictionnaire
+    centre de profit → part de 0 à 1) ;
+  - puis entre les AF / OF du centre de profit au prorata de leur Conso 2.
+
+10. ENRICHISSEMENTS DE LA TABLE DE SORTIE
+----------------------------------------
+- prod_gold.master_data.material_plant : centre de profit de l'AF, délais d'approvisionnement externe et interne,
+  prix standard budget EUR, classe ABC du composant, unité de base.
+- prod_gold.master_data.material_exposed : description, famille (familly_std), classe (classe_std).
+- prod_gold.master_data.material_master_data_plant_exposed : Branch, PF_pourcentage_affectation → colonne
+  component_PF_usage_ratio (« PF usage » de la demande).
+- prod_gold.master_data.plant_master_data_latest_exposed : description de l'usine.
+- prod_gold.finance.profit_center_exposed : description du centre de profit (zéros de tête retirés).
+
+11. AVERAGE BOM : LE PREND-ON POUR NOTRE USE CASE ?
+--------------------------------------------------
+Réponse courte : NON comme prévision ni comme source de données. OUI comme référence de règles métier et comme
+point de comparaison.
+
+Ce qu'est l'Average BOM (POC, notebook create_proj_average_bom, table {env}_proj.manuf_engineering.average_bom) :
+- OF de la branche IS, statut « livré », terminés dans les 12 derniers mois, hors types ZP09 / ZP10 / ZP11 / YP09 /
+  YP10 / YP11.
+- Réservations ACTUELLES de ces OF (prod_gold.mrp.sap_mrp_reservation_latest) divisées par la quantité de l'OF
+  → besoin moyen par pièce, rebut retiré par × (1 − ausch / 100).
+- Lignes classées : L et 0 = standard, 1 = pièce manquante, 2 à 5 = surconsommation.
+- Comparé à la BOM standard ACTUELLE (prod_gold.production.bom_exposed) de la version de production active
+  (production_version_exposed, quotas_arrangement_exposed, sinon la BOM la plus ancienne), fantômes éclatés.
+- Écart = (besoin moyen − quantité BOM) / quantité BOM ; fiabilité = 1 si l'écart est entre −5 % et +5 %, sinon 0.
+- Valorisation : impact stock et risques surstock / manquant au prix standard budget.
+
+Pourquoi on ne le prend pas comme base :
+1. Il ne mesure pas la consommation : il compare la BOM aux réservations (le « prévu » des OF), la quantité
+   consommée n'est qu'une information à côté. La demande veut comparer à la consommation réelle.
+2. Il utilise la BOM d'AUJOURD'HUI et les réservations d'AUJOURD'HUI. La demande dit justement que l'indicateur
+   existant « ne correspond pas au besoin principal : comparer la consommation réelle à la BOM qui était dans le
+   système AVANT cette consommation (la BOM n'est pas historisée) ». C'est ce que A et B apportent.
+3. Sa fiabilité est binaire (seuil de ±5 %), la demande définit une erreur continue moyennée par composant.
+4. Les réservations actuelles d'un OF terminé contiennent les lignes ajoutées pendant la production (manquants,
+   surconsommations) : ce n'est plus une prévision.
+5. La « BOM moyenne » est une autre notion : une BOM calculée à partir du passé. La demande parle d'une BOM
+   commune par CA calculée à partir de la consommation passée, mais les trois prévisions demandées sont les
+   besoins OP / OF et la BOM standard.
+
+Ce qu'on en reprend :
+- les catégories de lignes de réservation (piste pour la Conso 2) ;
+- le périmètre IS et les types d'ordre exclus (options à décider : widget branch, liste de types) ;
+- les exclusions vrac (schgt), composant SPLIT, statut usine 05 (questions ouvertes) ;
+- la formule du rebut (équivalente à notre Prévision 2) ;
+- la définition du fantôme (sobsl = 50, la même que la nôtre) ;
+- le « PF usage » (PF_pourcentage_affectation) ;
+- la valorisation au prix standard budget (impact € possible dans PowerBI).
+
+Comment on pourrait l'utiliser plus tard :
+- Comme point de contrôle : comparer, sur une même usine, notre fiabilité Prévision 3 / Conso 2 et la sienne pour
+  vérifier que les grands écarts tombent sur les mêmes composants.
+- Comme 4e prévision « BOM moyenne », SI le métier le demande : il faudrait alors la calculer à T0 à partir des
+  OF terminés avant T0 (avec B et les mouvements), pour ne pas utiliser d'information future.
+
+12. QUESTIONS OUVERTES LIÉES AUX PRÉVISIONS ET CONSOMMATIONS
+-----------------------------------------------------------
+- Conso 2 : comment identifier la casse ? Exclure les lignes de réservation 1 à 5 ?
+- Conso 3 : méthode de régularisation par centre de profit.
+- Mise à l'échelle des prévisions au volume final de l'OF : d'accord ?
+- 44 % d'OF sans prévision à T0 : les exclure (actuel) ou chercher une autre source ?
+- Types d'ordre ZP09 / ZP10 / ZP11 / YP09 / YP10 / YP11 (10,6 % des OF 2025) : rush ou retouche ? À exclure ?
+- Vrac, SPLIT, statut 05, articles 49… : à exclure ?
+- « PF usage » NULL quand le centre de profit de l'AF est un code chapeau (98x) : prendre celui de l'OF ?
+- Alternative de BOM quand l'OF / OP n'en indique pas : la plus basse, ou la version de production active ?
+- BOM moyenne : faut-il une 4e prévision ?

@@ -21,6 +21,25 @@ Lifecycle of a piece of work:
 Consequence: the Bitbucket-side gates (§12 PR, §13 Regression Gate) are **not** run here, but the code must already
 pass them — write as if the Convention Checker will run on it.
 
+### 0.1 Lab test target: `dev_lab.lab_jules`
+
+During notebook test phases (step 2 above), **every table a notebook writes goes to `dev_lab.lab_jules`**, never to
+`dev_silver` / `dev_gold` / `dev_proj`:
+
+- The redirection is a widget, not code: `lab_target_schema` (empty by default, present in all `templates/`).
+  Run the notebook with `lab_target_schema = dev_lab.lab_jules`; the `# Outputs` cell then sets
+  `CATALOG, SCHEMA = LAB_TARGET_SCHEMA.split(".")`. Jobs (DAB) never pass it.
+- **Never commit `dev_lab` / `lab_jules` as a literal or as a widget default** — it is a hardcoded environment
+  (Convention Checker BLOCKER). Literal lab paths are allowed only in specs/docs and in ad-hoc test cells that are
+  removed before the move to Bitbucket.
+- Table name in the lab = the final table name (`dev_lab.lab_jules.bom_item_history`, `_exposed` view included). If
+  two layers produce the same name, prefix with the layer (`gold_…`) in the lab only.
+- A notebook that reads a table produced **by the same project** (Gold reading its own Silver, Proj reading its own
+  Gold) reads it from `LAB_TARGET_SCHEMA` when the widget is set. Inputs owned by other assets are read as usual
+  (`REFERENCE_READ_ENV` / `PIPELINE_READ_ENV`).
+- Run with `pipeline_write_env = dev`, `reference_read_env = prod`. Record row counts and AMBER warnings of each lab
+  run in `Workbench/<asset>/working/corrections_log`.
+
 > **Rule zero:** before writing anything, open the closest sibling notebook/bundle in the repo and match it.
 > The reference notebook shipped with this repo is
 > [`examples/gold/create_gold_work_order_operation.py`](examples/gold/create_gold_work_order_operation.py)
@@ -68,8 +87,10 @@ platform/asset_bundle/<asset>/      # one DAB per job / pipeline
 Headers/SAP/<table>.yml             # source of truth for SAP field mappings (one YAML per table)
 Workbench/<asset>/Spec Output/      # DAS, test_definition.md, PowerBI guides
 Workbench/<asset>/working/          # corrections_log
+                                    # exception: Workbench/bom_reliability/ is flat (one folder: spec, logs, existing notebooks)
 leap_utils/                         # shared library (own PR rules, see §14)
 templates/                          # notebook / bundle templates (start from these)
+                                    # notebook_gold_history_template.py: monthly history from landing-zone *_stack tables
 examples/gold/                      # reference notebook (verbatim, see §3.4)
 ```
 
@@ -157,6 +178,10 @@ LOG_LEVEL = dbutils.widgets.get("log_level")
 log = logger.setup_applevel_logger(log_level=logger.LOGGER_MAPPING[LOG_LEVEL])
 ```
 
+Interactive runs: create **all** widgets in the one widget cell (the `### Debug Boolean` cell only reads them) and read the
+values already typed (`dbutils.widgets.get` in a `try`) before `removeAll()`, to pass them as defaults. Otherwise
+re-running the cell resets the values and the widgets of a second cell disappear.
+
 | What is read | Variable |
 |---|---|
 | Bronze tables, SAP header tables | `REFERENCE_READ_ENV` |
@@ -191,6 +216,8 @@ Gold notebook kept verbatim. Patterns worth copying:
 - **Outputs**: `CATALOG`/`SCHEMA`/`DESTINATION_TABLE` constants → `CREATE DATABASE IF NOT EXISTS` → `save_table`
   inside `try/except AnalysisException` with timing log → **idempotent PK constraint** (look up
   `system.information_schema.table_constraints`; only if absent, set NOT NULL then add PK).
+  Unity Catalog stores constraint names in lowercase: compare with `lower(constraint_name) = lower('<name>')`,
+  otherwise the lookup never matches `gold_<table>_PK` and the second run fails on "constraint already exists".
 - `Technical debt` states concrete debt (e.g. "PIPELINE_READ_ENV used for X instead of REFERENCE_READ_ENV").
 
 **Deviations in the example — do NOT copy** (they would be flagged by the Convention Checker / review, or differ
@@ -501,6 +528,8 @@ Landing Zone convention.
 
 ## 11. Jobs & orchestration (DAB)
 
+Reference template for any job or bundle: `templates/bundle_data_asset/` (copy the folder, rename, replace the `<<< REPLACE >>>` markers). It holds the cluster-policy matrix per environment, the naming, the tags and the notification settings every job must have.
+
 One DAB per job in `platform/asset_bundle/<asset_name>/` (`databricks.yml` + `resources/<name>_job.yml`).
 
 **Job name:** `<JOB_LAUNCH>_<ORCHESTRATION_LEVEL>_<DOMAIN>_<JOB_PURPOSE>`, `First_Second_Third` casing.
@@ -543,6 +572,10 @@ CLI: `databricks bundle validate|deploy -p job-runner-sa-dev -t dev`; bundle-ize
 
 **In this personal repo:** direct commits/pushes to `main`, no PR. Never force-push (keeps history usable when the
 work is later moved to Bitbucket). Use `log.info()/log.warning()` — **never `print()`**.
+
+**No mention of Claude / AI tooling** anywhere in the delivered work: code comments, notebook markdown, specs,
+commit messages (no `Co-Authored-By` / session trailers), PR texts. Code comments never cite this file either
+(write "LEAP guidelines"), and never contain a lab path (`dev_lab…`) literally.
 
 **On the company Bitbucket repo (final step — apply when moving the work there):**
 - Branches from `main`: `feature/<maingoal_object>` or `bugfix/<maingoal_object>` (ideally matching the Jira EPIC).
@@ -638,7 +671,7 @@ see Confluence chapter 16; not yet detailed here.
 8. When writing DAS Excel files, use PowerShell COM, not Python.
 9. Open points (not defined yet — say "to be confirmed", don't decide silently): Input quality checks layout,
    PK/constraint naming of existing notebooks vs Confluence, exposed view for each Gold, Gold historisation, rate-type-to-asset-type mapping, where to put logging, Self-service details.
-10. Workflow reminder: write here → test on Databricks dev → port to Bitbucket with PR. Push straight to `main`
+10. Workflow reminder: write here → test on Databricks dev (outputs in `dev_lab.lab_jules`, §0.1) → port to Bitbucket with PR. Push straight to `main`
     in this repo. When the user reports a test result from Databricks (error, wrong counts…), fix it here and note
     the fix in the notebook's `Technical debt` or the corrections log if it reveals a rule worth keeping.
 11. Final answer after any change: list files touched, which checklist items were verified, and anything

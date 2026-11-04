@@ -1,0 +1,180 @@
+# =====================================================================================
+# TEMPLATE — Databricks Asset Bundle for a LEAP CORE data asset / project job
+# (classic / non-serverless cluster). Copy this folder, rename it, and fill the
+# placeholders marked  <<< REPLACE >>>  below. See README.md for the full guide.
+#
+# What this template gives you out of the box:
+#   - the 3 CORE workspaces (dev / uat / prod) with the correct hosts & service principals
+#   - the FULL cluster-policy matrix (XS, S, M, M_MULTI, L, L_MULTI, XL_MULTI) per env
+#   - notification_email per env (prod -> LEAP alert mailbox)
+#   - git branch handling: per-env feature branch + prod forced to `main`
+#   - PowerBI refresh variables (optional, used by project jobs)
+#
+# NAMING (see README): job name = <FREQ>_<STAGE>_<Source>_<Name>_<Suffix>
+#   FREQ  letter :  D = Daily  OR  table-delta-update triggered   (default for data assets)
+#                   W = Weekly        M = Monthly
+#   STAGE number :  2 = data asset (silver/gold)      5 = project / snapshot
+#   e.g.  D_2_SAP_Material_Master_Data_Asset   /   M_5_SAP_UC070_Material_Snapshot
+# =====================================================================================
+bundle:
+  name: template_data_asset          # <<< REPLACE >>> bundle name (lowercase, no spaces)
+
+include:
+  - resources/*.yml
+
+# -------------------------------------------------------------------------------------
+# Variable declarations (required at bundle level; the real values are set per target).
+# -------------------------------------------------------------------------------------
+variables:
+  git_branch:
+    default: DEV_template_data_asset   # <<< REPLACE >>> your dev/uat feature branch (prod is forced to main)
+  pipeline_read_env:
+    default: dev
+  pipeline_write_env:
+    default: dev
+  reference_read_env:
+    default: prod                      # dev/uat read reference data from prod; keep as-is
+  dbx_service_principal:
+    default: fde6ff28-739f-4a41-b61e-604a298c8478  # job-runner-sa-dev
+
+  # --- Cluster policy ids (CORE) — one per size x env. Pick the size you need in the
+  #     job's job_cluster.policy_id (e.g. ${var.job_cluster_policy_id_S}). The policy
+  #     also REQUIRES the cluster tag activity-type: <env>-job (already set in the jobs).
+  job_cluster_policy_id_XS:
+    default: 001336AE5D9B5C83
+  job_cluster_policy_id_S:
+    default: 001E30C26BD479FE
+  job_cluster_policy_id_M:
+    default: 0005321E892BF7D2
+  job_cluster_policy_id_M_MULTI:
+    default: 001BF5801904FC03
+  job_cluster_policy_id_L:
+    default: 001CE374571BE357
+  job_cluster_policy_id_L_MULTI:
+    default: 00060B6DEB9D2185
+  job_cluster_policy_id_XL_MULTI:
+    default: 00060B6DEB9D2185
+
+  # --- Notifications: failure alerts go here. prod -> LEAP shared alert mailbox.
+  notification_email:
+    default: patrice.puntis@latecoere.aero   # <<< REPLACE >>> dev/uat recipient (your email)
+
+  # --- PowerBI dataset refresh (only used by project jobs that refresh a PBI model).
+  #     Keep "0" when unused.
+  pbi_workspace_id:
+    default: "0"
+  pbi_semantic_model_id:
+    default: "0"
+
+  # --- Catalogs — ONLY needed if you deploy schemas/volumes via
+  #     resources/schemas_and_volumes.yml. Delete these + that file otherwise.
+  my_gold_catalog:
+    default: dev_gold
+  my_proj_catalog:
+    default: dev_proj
+
+# -------------------------------------------------------------------------------------
+# Targets — the per-environment values. Hosts / SPs / policy ids are CORE constants:
+# do NOT change them. Change only git_branch (dev/uat), notification_email (dev/uat),
+# and the PBI ids (prod) for your asset.
+# -------------------------------------------------------------------------------------
+targets:
+
+  dev:
+    mode: production
+    default: true
+    workspace:
+      host: https://dbc-c623749d-731b.cloud.databricks.com
+      # Outside /Workspace/Shared -> avoids the "writable by all users" validate warning.
+      root_path: /Workspace/.bundle/${bundle.name}/${bundle.target}
+    permissions:
+      - group_name: Role-Project-LEAP-CoreAdmin
+        level: CAN_MANAGE
+      - group_name: Role-Project-LEAP-CoreDev
+        level: CAN_MANAGE
+      - group_name: leap-core-service_accounts-dev
+        level: CAN_MANAGE
+      - group_name: users
+        level: CAN_VIEW          # dev only
+    variables:
+      git_branch: DEV_template_data_asset        # <<< REPLACE >>>
+      pipeline_read_env: dev
+      pipeline_write_env: dev
+      reference_read_env: prod
+      dbx_service_principal: fde6ff28-739f-4a41-b61e-604a298c8478  # job-runner-sa-dev
+      job_cluster_policy_id_XS: 001336AE5D9B5C83
+      job_cluster_policy_id_S: 001E30C26BD479FE
+      job_cluster_policy_id_M: 0005321E892BF7D2
+      job_cluster_policy_id_M_MULTI: 001BF5801904FC03
+      job_cluster_policy_id_L: 001CE374571BE357
+      job_cluster_policy_id_L_MULTI: 00060B6DEB9D2185
+      job_cluster_policy_id_XL_MULTI: 00060B6DEB9D2185
+      notification_email: patrice.puntis@latecoere.aero           # <<< REPLACE >>>
+      pbi_workspace_id: "0"
+      pbi_semantic_model_id: "0"
+      my_gold_catalog: dev_gold
+      my_proj_catalog: dev_proj
+
+  uat:
+    mode: production
+    workspace:
+      host: https://dbc-3a17bfce-9e88.cloud.databricks.com
+      root_path: /Workspace/.bundle/${bundle.name}/${bundle.target}
+    permissions:
+      - group_name: Role-Project-LEAP-CoreAdmin
+        level: CAN_MANAGE
+      - group_name: Role-Project-LEAP-CoreDev
+        level: CAN_MANAGE
+      - group_name: leap-core-service_accounts-uat
+        level: CAN_MANAGE
+    variables:
+      git_branch: DEV_template_data_asset        # <<< REPLACE >>> (uat usually tracks the same feature branch)
+      pipeline_read_env: uat
+      pipeline_write_env: uat
+      reference_read_env: prod
+      dbx_service_principal: 3e5cd4e5-f765-4760-b974-ee7715258b39  # job-runner-sa-uat
+      job_cluster_policy_id_XS: 001AA27441274FF2
+      job_cluster_policy_id_S: 000E7559CADE5290
+      job_cluster_policy_id_M: 0006C8EAD0AC0F37
+      job_cluster_policy_id_M_MULTI: 001420AE7BB0463A
+      job_cluster_policy_id_L: 00074D86538687B0
+      job_cluster_policy_id_L_MULTI: 000EAC6CE703A386
+      job_cluster_policy_id_XL_MULTI: 000F4BAF8B73067B
+      notification_email: patrice.puntis@latecoere.aero           # <<< REPLACE >>>
+      pbi_workspace_id: "0"
+      pbi_semantic_model_id: "0"
+      my_gold_catalog: uat_gold
+      my_proj_catalog: uat_proj
+
+  prod:
+    mode: production
+    workspace:
+      host: https://dbc-77b87d5a-6bcb.cloud.databricks.com
+      root_path: /Workspace/.bundle/${bundle.name}/${bundle.target}
+    git:
+      branch: main                 # prod ALWAYS deploys from main
+    permissions:
+      - group_name: Role-Project-LEAP-CoreAdmin
+        level: CAN_MANAGE
+      - group_name: Role-Project-LEAP-CoreDev
+        level: CAN_MANAGE
+      - group_name: leap-core-service_accounts-prod
+        level: CAN_MANAGE
+    variables:
+      git_branch: main
+      pipeline_read_env: prod
+      pipeline_write_env: prod
+      reference_read_env: prod
+      dbx_service_principal: b82d3b5a-b633-4738-8dde-68bb2142cb02  # job-runner-sa-prod
+      job_cluster_policy_id_XS: 0019FFDA06BAE34B
+      job_cluster_policy_id_S: 001C199A8D85FE35
+      job_cluster_policy_id_M: 000D029BB8A5436E
+      job_cluster_policy_id_M_MULTI: 000369967044CA3C
+      job_cluster_policy_id_L: 001C275BE9A1A31D
+      job_cluster_policy_id_L_MULTI: 0014DA9044672A5B
+      job_cluster_policy_id_XL_MULTI: 000955DE667C7125
+      notification_email: LEAP_Databricks_Alert@latecoere.aero
+      pbi_workspace_id: "0"              # <<< REPLACE >>> prod PBI workspace id (if the project refreshes PBI)
+      pbi_semantic_model_id: "0"         # <<< REPLACE >>> prod PBI semantic model id
+      my_gold_catalog: prod_gold
+      my_proj_catalog: prod_proj

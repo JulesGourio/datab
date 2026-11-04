@@ -1,0 +1,31 @@
+# =====================================================================================
+# TEMPLATE (OPTIONAL) — deploy an AI/BI Genie space (agent) with the bundle.
+#
+# A Genie space needs a *serialized definition* (.geniespace.json). You don't hand-write it:
+# author the space in the Databricks UI (dev), then round-trip it into this bundle:
+#
+#   databricks bundle generate genie-space --existing-id <SPACE_ID> --key <resource_key> -t dev --profile DEV
+#
+# That writes resources/<key>.genie_space.yml + src/<key>.geniespace.json. Then parameterize
+# warehouse_id / parent_path per env (add the variables below to databricks.yml) and deploy.
+#
+# The block below is COMMENTED so the template still validates (no real .geniespace.json yet).
+# Uncomment + adapt after running `bundle generate genie-space`, or delete this file if unused.
+#
+# Variable to add to databricks.yml (top-level + per target) when you enable a Genie space:
+#   genie_warehouse_id : Pro/Serverless SQL warehouse id (per env)
+# parent_path = ${workspace.root_path} (bundle folder, NOT /Workspace/Shared); or a fixed /Workspace/genie
+#
+# Reference bundle: platform/asset_bundle/site_performance_genie
+# =====================================================================================
+# resources:
+#   genie_spaces:
+#     my_genie_space:                      # <<< REPLACE >>> resource key (= --key)
+#       title: "My Genie Space"            # <<< REPLACE >>>
+#       description: "What this agent answers."
+#       warehouse_id: ${var.genie_warehouse_id}
+#       parent_path: ${workspace.root_path}               # bundle folder (NOT /Workspace/Shared)
+#       file_path: ../src/my_genie_space.geniespace.json   # produced by `bundle generate genie-space`
+#       # permissions:
+#       #   - group_name: Role-Project-LEAP-End-users-<...>   # end users who may query the space
+#       #     level: CAN_RUN
