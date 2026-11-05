@@ -2,7 +2,7 @@
 
 ## 1. Le besoin
 
-Pour chaque article fabriqué (AF) (toutes branches ; la demande vise la branche IS, filtre optionnel `branch`), mesurer si la BOM connue à une date T0 a
+Pour chaque article fabriqué (AF) (branche IS par défaut, widget `branch` ; vide = toutes les branches), mesurer si la BOM connue à une date T0 a
 bien prévu ce qui a été réellement consommé par les ordres de fabrication (OF) commencés après T1 et terminés avant T2.
 
 - Fiabilité d'un AF = 100 % − moyenne, sur ses composants, de |prévision − consommation| / max(prévision, consommation).
@@ -23,6 +23,7 @@ A + B + OF + mouvements de stock + données article         ──► C  {env}_p
 |---|---|---|
 | A | `data_asset/production/bom_history/create_gold_bom_item_history.py` | BOM telle que SAP la connaissait au 1er de chaque mois (Prévision 3) |
 | B | `data_asset/mrp/order_component_requirement_history/create_gold_order_component_requirement_history.py` | Besoins ouverts des OP / OF au 1er de chaque mois (Prévisions 1 et 2) |
+| D | `data_asset/production/bom_history/create_gold_average_bom_history.py` | Average BOM (« BOM commune ») au 1er de chaque mois : version de production active à T0, fantômes éclatés (Prévision 3 « as-designed ») — voir `spec_average_bom_history.md` |
 | C | `proj/uc093-bom_reliability/create_proj_bom_reliability.py` | Périodes, périmètre IS, consommations, erreurs, statut, fiabilité |
 
 **Principe de l'historique.** Les tables `*_stack` de la landing zone gardent chaque extraction SAP complète (jamais
@@ -32,15 +33,15 @@ reconstruisent entièrement (`rebuild_mode = full`) ou n'ajoutent que les mois m
 
 ## 3. Lancer les notebooks (lab)
 
-Ordre : A, puis B, puis C. Paramètres pour A et B :
+Ordre : A, puis D (qui lit A), puis B, puis C. Paramètres pour A et D (sans `lab_target_schema` : ils écrivent dans `{pipeline_write_env}_gold.production` ; D a en plus `branch`, `IS` par défaut). B garde le widget `lab_target_schema` :
 
 ```json
 {"pipeline_write_env": "dev", "pipeline_read_env": "dev", "reference_read_env": "prod",
- "lab_target_schema": "dev_lab.lab_jules", "by_pass_quality_checks": "false", "debug": "False",
+ "by_pass_quality_checks": "false", "debug": "False",
  "log_level": "info", "snapshot_from_date": "", "debug_plant": "", "rebuild_mode": "full"}
 ```
 
-Pour C : mêmes paramètres sans `snapshot_from_date` ni `rebuild_mode`, avec `branch` vide (toutes les branches ; `IS` pour se limiter à l'interconnexion).
+Pour C : mêmes paramètres sans `snapshot_from_date` ni `rebuild_mode`, avec `branch` = `IS` (valeur par défaut ; vide pour toutes les branches). Le notebook D a le même widget `branch`, `IS` par défaut.
 
 - **Run rapide** : `debug_plant = 2400` (et `snapshot_from_date = 2025-01-01` pour A et B). A et B écrivent alors
   dans `*_debug`, et C (avec le même `debug_plant`) lit et écrit des tables `*_debug`.
