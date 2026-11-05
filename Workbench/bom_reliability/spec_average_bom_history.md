@@ -26,7 +26,9 @@ parmi les versions valides, `create_proj_average_bom` le quota puis la plus anci
 
 ## 3. Colonnes
 
-`average_bom_history_ID` (PK) · `snapshot_date` · `plant` · `material_number` · `material_description` · `production_version` ·
+Périmètre : widget `branch`, `IS` par défaut (branche de l'AF dans son usine, `material_master_data_plant_exposed`, valeur actuelle) ; vide = toutes les branches. Les fantômes sont éclatés quelle que soit leur propre branche.
+
+`average_bom_history_ID` (PK) · `snapshot_date` · `plant` · `material_number` · `material_description` · `branch` · `production_version` ·
 `BOM_alternative` · `selection_rule` · `nb_active_versions` · `BOM_number` · `BOM_item_number` (`9999` si éclaté) · `BOM_item_category` ·
 `BOM_status` · `component_material_number` · `component_description` · `component_base_unit` · `quantity_per_unit` (rebut compris, `0` si
 quantité fixe) · `quantity_per_order` (quantité fixe, rebut compris) · `component_scrap_percentage` · `component_plant_status` ·
@@ -276,6 +278,26 @@ numéros de BOM. À refaire après un run complet de A (toutes les usines), ou e
 **20. A complet ou debug ?** Le notebook D en debug lit `bom_item_history_debug`, en run complet `bom_item_history`. Avant de lancer D : soit relancer A en `full` (toutes
 usines, depuis 2023-05), soit le relancer avec les paramètres de debug pour créer `bom_item_history_debug`.
 
+**21. Branche des articles** — le notebook filtre sur `Branch` (`IS` par défaut). Attendu : colonnes `Material_Number, Plant, Branch`, valeurs `IS` / `AS`, un seul `Branch` par article et usine.
+```sql
+SELECT Branch, COUNT(*) AS nb FROM prod_gold.master_data.material_master_data_plant_exposed GROUP BY Branch;
+```
+```sql
+SELECT COUNT(*) AS articles_usines_avec_plusieurs_branches FROM (
+  SELECT Material_Number, Plant FROM prod_gold.master_data.material_master_data_plant_exposed
+  GROUP BY Material_Number, Plant HAVING COUNT(DISTINCT Branch) > 1);
+```
+```sql
+SELECT COUNT(DISTINCT concat_ws('-', a.plant, a.material_number)) AS af_dans_A,
+       COUNT(DISTINCT CASE WHEN m.Branch = 'IS' THEN concat_ws('-', a.plant, a.material_number) END) AS af_IS,
+       COUNT(DISTINCT CASE WHEN m.Branch IS NULL THEN concat_ws('-', a.plant, a.material_number) END) AS af_sans_branche
+FROM dev_lab.lab_jules.bom_item_history a
+LEFT JOIN prod_gold.master_data.material_master_data_plant_exposed m
+  ON ltrim('0', m.Material_Number) = a.material_number AND m.Plant = a.plant
+WHERE a.snapshot_date = DATE'2026-10-01';
+```
+Attendu : 0 article en double branche ; `af_sans_branche` négligeable.
+
 ### Après le premier run (debug : `debug_plant = 2400`, `snapshot_from_date = 2025-01-01`)
 
 **14. Règles appliquées et fantômes**
@@ -316,6 +338,7 @@ Attendu : au moins 95 % de même version. Les écarts restants viennent du déca
 | D1 | Plusieurs versions valides : quota puis la plus ancienne (average_bom) ou plus petite alternative (multilevel) ? | quota puis la plus ancienne |
 | D2 | Quotas non historisés | résolu : historisés depuis `equk_stack` / `equp_stack` |
 | D3 | AF sans version utilisable : plus petite alternative ou exclure de la mesure ? | plus petite alternative, marquée |
+| D0 | Périmètre | `IS` (décision 2026-11-05) |
 | D4 | Vrac, statut usine `05`, `SPLIT`, articles `49…` : exclus de la Prévision 3 ? (= L7, L9) | gardés, marqués |
 | D5 | Plusieurs numéros de BOM pour la même alternative (plages de taille de lot `losvn` / `losbs`) : lequel ? | tous gardés (contrôle AMBER) |
 | D6 | Rebut du poste fantôme lui-même : inclus dans la quantité des composants éclatés ? | oui (facteur du fantôme multiplié, comme C) |

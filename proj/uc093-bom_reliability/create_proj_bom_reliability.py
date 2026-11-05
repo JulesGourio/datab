@@ -193,14 +193,14 @@ dbutils.widgets.dropdown(
 
 dbutils.widgets.text("debug_plant", PREVIOUS_WIDGET_VALUES.get("debug_plant", ""))
 
-dbutils.widgets.text("branch", PREVIOUS_WIDGET_VALUES.get("branch", ""))
+dbutils.widgets.text("branch", PREVIOUS_WIDGET_VALUES.get("branch", "IS"))
 
 # COMMAND ----------
 
 # MAGIC %md
 # MAGIC ### Debug Boolean
 # MAGIC `debug_plant` restricts the run to one plant (lab only, empty in jobs).
-# MAGIC `branch` optionally restricts the scope to the AF of one branch (`IS` or `AS`); empty (default) = all branches.
+# MAGIC `branch` restricts the scope to the AF of one branch: `IS` by default (request scope), `AS`, or empty for all branches.
 
 # COMMAND ----------
 

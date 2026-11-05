@@ -219,3 +219,7 @@ La liste complète des questions métier, OP/OF et architecture (spec v2) est da
 ## Décision 2026-10-26
 
 - **L10** : pas de filtre de branche par défaut (toutes les branches). Le widget `branch` de C reste disponible (`IS` ou `AS`).
+
+## Décision 2026-11-05
+
+- **L10** : le périmètre redevient la branche **IS** par défaut (widget `branch` = `IS` dans C et dans le notebook D `create_gold_average_bom_history`) ; vide = toutes les branches. Remplace la décision du 2026-10-26.

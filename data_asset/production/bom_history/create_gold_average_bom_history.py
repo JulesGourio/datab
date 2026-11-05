@@ -21,6 +21,8 @@
 # MAGIC - Phantom assemblies (`MARC.SOBSL = 50`) are replaced by the BOM selected for the phantom itself (same snapshot, same plant),
 # MAGIC   up to `MAX_PHANTOM_DEPTH` levels. Exploded lines carry BOM item `9999` and the phantom chain. A phantom that cannot be exploded
 # MAGIC   is kept and flagged (`explosion_status`).
+# MAGIC - Scope: AF of the branch given by the `branch` widget (`IS` by default, empty = all branches), from `Branch` of the material master
+# MAGIC   of the AF in its plant (current value, not historised). Phantom assemblies are exploded whatever their own branch.
 # MAGIC - Bulk material and plant material status (`05`) are **flagged, not filtered**, and the `SPLIT` article is kept (identified by its
 # MAGIC   number): the use case decides.
 # MAGIC - Sources are the landing zone `*_stack` tables and the Gold `bom_item_history`; for each snapshot date the latest extraction
@@ -38,6 +40,7 @@
 # MAGIC - {REFERENCE_READ_ENV}_landingzone.sap_latecoere_ecc6.marc_stack
 # MAGIC - {REFERENCE_READ_ENV}_landingzone.sap_latecoere_ecc6.equk_stack
 # MAGIC - {REFERENCE_READ_ENV}_landingzone.sap_latecoere_ecc6.equp_stack
+# MAGIC - {REFERENCE_READ_ENV}_gold.master_data.material_master_data_plant_exposed
 # MAGIC
 # MAGIC **Output Tables (Pipeline)**
 # MAGIC - {PIPELINE_WRITE_ENV}_gold.production.average_bom_history
@@ -48,6 +51,7 @@
 # MAGIC   (`SINGLE_ACTIVE_VERSION`, `QUOTA_VERSION`, `EARLIEST_ACTIVE_VERSION`, `LOWEST_ALTERNATIVE`).
 # MAGIC - `quantity_per_unit`: component quantity (base unit) for one unit of AF, scrap included, phantoms exploded; `0` for fixed-quantity items.
 # MAGIC - `quantity_per_order`: fixed quantity consumed once per order, scrap included; `0` for proportional items.
+# MAGIC - `branch`: branch (`IS` / `AS`) of the AF in its plant, current master data.
 # MAGIC - `explosion_status`: `DIRECT`, `EXPLODED`, `PHANTOM_WITHOUT_BOM`, `PHANTOM_DEPTH_EXCEEDED`.
 # MAGIC - `phantom_path`: phantom articles crossed from the AF to the component (empty when direct).
 
@@ -64,6 +68,7 @@ dbutils.library.restartPython()
 # MAGIC %md
 # MAGIC # Technical debt
 # MAGIC - Lab runs only, to remove before the move to Bitbucket: the `%pip install great_expectations` cell and its restart, `sys.path.insert(...)` (`leap_utils`) and the `persist` / `cache` patch (serverless) in the standard imports cell.
+# MAGIC - The branch of an AF is its current value in the material master: an article that changed branch is filtered with its current branch for all past snapshots.
 # MAGIC - The existing Average BOM notebooks disagree on the choice among several valid versions (`create_proj_average_bom`: quota, then earliest valid-from; `create_proj_bom_average_multilevel`: lowest alternative). The first one is applied here: to be confirmed.
 # MAGIC - Fallback `LOWEST_ALTERNATIVE`: the existing indicator keeps the BOM created first, but the creation date of the BOM header is not kept by `bom_item_history`.
 # MAGIC - A phantom that contains itself (loop) is cut at the second occurrence: the pre-run checks of the spec (§4, check 12) must return 0 loops.
@@ -137,6 +142,7 @@ WIDGET_NAMES = [
     "snapshot_from_date",
     "debug_plant",
     "rebuild_mode",
+    "branch",
 ]
 PREVIOUS_WIDGET_VALUES = {}
 for widget_name in WIDGET_NAMES:
@@ -184,12 +190,15 @@ dbutils.widgets.dropdown(
     choices=["full", "incremental"],
 )
 
+dbutils.widgets.text("branch", PREVIOUS_WIDGET_VALUES.get("branch", "IS"))
+
 # COMMAND ----------
 
 # MAGIC %md
 # MAGIC ### Debug Boolean
 # MAGIC `snapshot_from_date` (yyyy-MM-dd) and `debug_plant` shorten lab runs; both are empty in jobs. A debug run reads and writes
 # MAGIC the `*_debug` tables, like `create_gold_bom_item_history`.
+# MAGIC `branch` (`IS` by default, `AS`, or empty for all branches) restricts the output to the AF of that branch.
 # MAGIC `rebuild_mode`: `full` rewrites every snapshot; `incremental` only adds the snapshot dates of `bom_item_history` missing from the output table.
 
 # COMMAND ----------
@@ -203,6 +212,8 @@ SNAPSHOT_FROM_DATE = dbutils.widgets.get("snapshot_from_date").strip()
 DEBUG_PLANT = dbutils.widgets.get("debug_plant").strip()
 
 REBUILD_MODE = dbutils.widgets.get("rebuild_mode")
+
+BRANCH = dbutils.widgets.get("branch").strip()
 
 # COMMAND ----------
 
@@ -349,6 +360,16 @@ df_equp_raw = spark.read.table(f"{LANDING_ZONE_SCHEMA}.equp_stack")
 # COMMAND ----------
 
 # MAGIC %md
+# MAGIC ### Reference Gold tables
+# MAGIC Branch (`IS` / `AS`) of each article in its plant.
+
+# COMMAND ----------
+
+df_master_data_raw = spark.read.table(f"{REFERENCE_READ_ENV}_gold.master_data.material_master_data_plant_exposed")
+
+# COMMAND ----------
+
+# MAGIC %md
 # MAGIC ### Required columns
 # MAGIC The notebook reads SAP field names and Gold columns by name: it stops here, with the list of what is missing,
 # MAGIC if one of the inputs does not have the expected structure.
@@ -378,6 +399,7 @@ check_required_columns(
     "marc_stack",
     ["extraction_timestamp", "ingestion_timestamp", "file_mode", "stack_row_id", "matnr", "werks", "mmsta"],
 )
+check_required_columns(df_master_data_raw, "material_master_data_plant_exposed", ["Material_Number", "Plant", "Branch"])
 check_required_columns(
     df_equk_raw,
     "equk_stack",
@@ -656,6 +678,24 @@ df_gx_quota = SparkDFDataset(df_quota_prep, persist=False)
 # COMMAND ----------
 
 # MAGIC %md
+# MAGIC ##Prep5b - Branch of the manufactured articles
+# MAGIC `Branch` of the AF in its plant, used to keep the scope of the request (`IS`). Distinct rows first, so that an article with two
+# MAGIC different branches in the same plant is caught by the uniqueness check.
+
+# COMMAND ----------
+
+df_branch_prep = df_master_data_raw.select(
+    f.trim(f.col("Material_Number")).alias("material_number"),
+    f.trim(f.col("Plant")).alias("plant"),
+    f.trim(f.col("Branch")).alias("branch"),
+).distinct()
+df_branch_prep = table_utils.remove_leading_zeros(df=df_branch_prep, column_names=["material_number"])
+
+df_gx_branch = SparkDFDataset(df_branch_prep, persist=False)
+
+# COMMAND ----------
+
+# MAGIC %md
 # MAGIC ##Prep6 - Plant status of the components (MARC)
 # MAGIC `mmsta` is the plant-specific material status (`05` = everything available to launch production). Flag only, no filter.
 
@@ -800,8 +840,16 @@ df_child = df_direct.select(
 
 df_child_keys = df_child.select("snapshot_date", "plant", "phantom_material_number").distinct()
 
+# The branch scope applies to the AF only: the children (phantom assemblies) come from the unfiltered lines
+df_direct_scope = df_direct.join(df_branch_prep, ["material_number", "plant"], how="left")
+log.info("Joined branch on material_number/plant - key uniqueness and null rate checked in Quality Checks")
+df_gx_direct_branch = SparkDFDataset(df_direct_scope, persist=False)
+if BRANCH:
+    df_direct_scope = df_direct_scope.filter(f.col("branch") == BRANCH)
+    log.info(f"Scope limited to the AF of branch {BRANCH}")
+
 df_level_0 = (
-    df_direct.withColumn("explosion_level", f.lit(0))
+    df_direct_scope.withColumn("explosion_level", f.lit(0))
     .withColumn("phantom_chain", f.array().cast("array<string>"))
     .withColumn("explosion_key", f.concat_ws(":", "BOM_number", "BOM_node"))
 )
@@ -836,6 +884,7 @@ for level in range(1, MAX_PHANTOM_DEPTH + 1):
             f.lit(PHANTOM_ITEM_NUMBER).alias("BOM_item_number"),
             "BOM_item_category",
             "BOM_status",
+            "branch",
             f.col("child_component_material_number").alias("component_material_number"),
             f.col("child_component_description").alias("component_description"),
             f.col("child_component_base_unit").alias("component_base_unit"),
@@ -916,6 +965,7 @@ OUTPUT_COLUMNS = [
     "plant",
     "material_number",
     "material_description",
+    "branch",
     "production_version",
     "BOM_alternative",
     "selection_rule",
@@ -969,6 +1019,7 @@ red_quality_check_results = [
     df_gx_quota.expect_compound_columns_to_be_unique(
         ["snapshot_date", "plant", "material_number", "production_version"]
     ),
+    df_gx_branch.expect_compound_columns_to_be_unique(["material_number", "plant"]),
     df_gx_equk.expect_compound_columns_to_be_unique(["snapshot_date", "quota_number"]),
     df_gx_equp.expect_compound_columns_to_be_unique(["snapshot_date", "quota_number", "quota_item"]),
     df_gx_selection.expect_compound_columns_to_be_unique(["snapshot_date", "plant", "material_number"]),
@@ -990,6 +1041,7 @@ gx_validation.validate_and_log_gx_results(
 
 # MAGIC %md
 # MAGIC AMBER:
+# MAGIC - almost every AF of the BOM history should have a branch in the material master (an AF without one is outside the `IS` scope);
 # MAGIC - most AF should have a usable production version (`production_version` filled);
 # MAGIC - phantoms should all be exploded (`explosion_status` DIRECT / EXPLODED);
 # MAGIC - a selected alternative should hold a single BOM number (several = lot size ranges, lines are all kept);
@@ -1001,6 +1053,7 @@ df_bom_number_check = df_direct.select(*SELECTION_KEYS, "BOM_number").distinct()
 df_gx_bom_number = SparkDFDataset(df_bom_number_check, persist=False)
 
 amber_quality_check_results = [
+    df_gx_direct_branch.expect_column_values_to_not_be_null(column="branch", mostly=0.99),
     df_gx_final.expect_column_values_to_not_be_null(column="production_version", mostly=0.9),
     df_gx_final.expect_column_values_to_be_in_set(
         column="explosion_status", value_set=["DIRECT", "EXPLODED"], mostly=0.999
