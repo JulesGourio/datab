@@ -33,11 +33,11 @@ reconstruisent entièrement (`rebuild_mode = full`) ou n'ajoutent que les mois m
 
 ## 3. Lancer les notebooks (lab)
 
-Ordre : A, puis B, puis C. Paramètres pour A et B :
+Ordre : A, puis D (qui lit A), puis B, puis C. Paramètres pour A et D (sans `lab_target_schema` : ils écrivent dans `{pipeline_write_env}_gold.production` ; D a en plus `branch`, `IS` par défaut). B garde le widget `lab_target_schema` :
 
 ```json
 {"pipeline_write_env": "dev", "pipeline_read_env": "dev", "reference_read_env": "prod",
- "lab_target_schema": "dev_lab.lab_jules", "by_pass_quality_checks": "false", "debug": "False",
+ "by_pass_quality_checks": "false", "debug": "False",
  "log_level": "info", "snapshot_from_date": "", "debug_plant": "", "rebuild_mode": "full"}
 ```
 

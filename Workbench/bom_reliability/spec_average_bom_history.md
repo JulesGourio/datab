@@ -38,7 +38,7 @@ Prévision 3 dans C = `quantity_per_unit × quantité finale de l'OF + quantity_
 
 ## 4. Contrôles à faire avant le premier run (et après)
 
-Convention : `LZ` = `prod_landingzone.sap_latecoere_ecc6`, `A` = `dev_lab.lab_jules.bom_item_history` (sortie complète du notebook A, pas la version `_debug`).
+Convention : `LZ` = `prod_landingzone.sap_latecoere_ecc6`, `A` = `dev_gold.production.bom_item_history` (sortie complète du notebook A, pas la version `_debug` ; A et D n'ont plus de widget de lab : ils écrivent dans `{pipeline_write_env}_gold.production`).
 Date de test des contrôles 9 à 13 : `2026-10-01` (un snapshot de A existant). Le notebook s'arrête de lui-même, avec la liste des colonnes
 manquantes, si une entrée n'a pas la structure attendue (cellule « Required columns »). Les contrôles 2, 5, 6 et 7 disent à l'avance ce qu'il va trouver.
 
@@ -84,7 +84,7 @@ Attendu : `FULL` avec ~281 extractions depuis 2023-04-23. Si on ne voit que `DEL
 SELECT s.snapshot_date,
        MAX(CAST(m.extraction_timestamp AS DATE)) AS derniere_extraction_mkal,
        datediff(s.snapshot_date, MAX(CAST(m.extraction_timestamp AS DATE))) AS jours_ecart
-FROM (SELECT DISTINCT snapshot_date FROM dev_lab.lab_jules.bom_item_history) s
+FROM (SELECT DISTINCT snapshot_date FROM dev_gold.production.bom_item_history) s
 LEFT JOIN (SELECT DISTINCT extraction_timestamp FROM prod_landingzone.sap_latecoere_ecc6.mkal_stack WHERE file_mode = 'FULL') m
   ON CAST(m.extraction_timestamp AS DATE) < s.snapshot_date
 GROUP BY s.snapshot_date ORDER BY s.snapshot_date;
@@ -128,17 +128,17 @@ Attendu : deux nombres égaux ou très proches (le notebook reconstruit les quot
 
 **7. Sortie du notebook A** — doit être complète et à jour (35 colonnes, ~42 snapshots, 3,7 M lignes par snapshot).
 ```sql
-DESCRIBE dev_lab.lab_jules.bom_item_history;
+DESCRIBE dev_gold.production.bom_item_history;
 ```
 ```sql
-SELECT snapshot_date, COUNT(*) AS nb_lignes FROM dev_lab.lab_jules.bom_item_history GROUP BY snapshot_date ORDER BY snapshot_date;
+SELECT snapshot_date, COUNT(*) AS nb_lignes FROM dev_gold.production.bom_item_history GROUP BY snapshot_date ORDER BY snapshot_date;
 ```
 Attendu : de `2023-05-01` au 1er du mois courant, sans trou. Si seule la table `_debug` existe, relancer A en `full` d'abord.
 
 **8. Quantité de base des BOM** — une quantité de base nulle ou égale à 0 donnerait une quantité inconnue.
 ```sql
 SELECT COUNT(*) AS lignes, SUM(CASE WHEN BOM_base_quantity IS NULL OR BOM_base_quantity = 0 THEN 1 ELSE 0 END) AS base_nulle
-FROM dev_lab.lab_jules.bom_item_history WHERE snapshot_date = DATE'2026-10-01';
+FROM dev_gold.production.bom_item_history WHERE snapshot_date = DATE'2026-10-01';
 ```
 Attendu : `base_nulle` = 0 ou négligeable.
 
@@ -161,23 +161,23 @@ WHERE file_mode = 'FULL'
 SELECT COUNT(*) AS versions_valides,
        SUM(CASE WHEN a.BOM_alternative IS NOT NULL THEN 1 ELSE 0 END) AS avec_bom_dans_A
 FROM v_valid_versions v
-LEFT JOIN (SELECT DISTINCT plant, material_number, BOM_alternative FROM dev_lab.lab_jules.bom_item_history
+LEFT JOIN (SELECT DISTINCT plant, material_number, BOM_alternative FROM dev_gold.production.bom_item_history
            WHERE snapshot_date = DATE'2026-10-01') a
   ON a.plant = v.plant AND a.material_number = v.material_number AND a.BOM_alternative = v.BOM_alternative;
 ```
 Attendu : au moins 95 % avec BOM **sur les usines présentes dans A**. Résultat 2026-11-05 : 162 402 versions valides mais 1 seule avec BOM, parce que la table
-`dev_lab.lab_jules.bom_item_history` ne contient que ~63 700 lignes par snapshot, de 2025-01-01 à 2026-10-01 (sous-ensemble d'un run de debug), pas toutes les usines.
+`bom_item_history` du lab ne contenait que ~63 700 lignes par snapshot, de 2025-01-01 à 2026-10-01 (sous-ensemble d'un run de debug), pas toutes les usines.
 Refaire le contrôle limité aux usines de A :
 ```sql
-SELECT plant, COUNT(*) AS nb_lignes FROM dev_lab.lab_jules.bom_item_history WHERE snapshot_date = DATE'2026-10-01' GROUP BY plant;
+SELECT plant, COUNT(*) AS nb_lignes FROM dev_gold.production.bom_item_history WHERE snapshot_date = DATE'2026-10-01' GROUP BY plant;
 ```
 ```sql
 SELECT COUNT(*) AS versions_valides, SUM(CASE WHEN a.BOM_alternative IS NOT NULL THEN 1 ELSE 0 END) AS avec_bom_dans_A
 FROM v_valid_versions v
-LEFT JOIN (SELECT DISTINCT plant, material_number, BOM_alternative FROM dev_lab.lab_jules.bom_item_history
+LEFT JOIN (SELECT DISTINCT plant, material_number, BOM_alternative FROM dev_gold.production.bom_item_history
            WHERE snapshot_date = DATE'2026-10-01') a
   ON a.plant = v.plant AND a.material_number = v.material_number AND a.BOM_alternative = v.BOM_alternative
-WHERE v.plant IN (SELECT DISTINCT plant FROM dev_lab.lab_jules.bom_item_history WHERE snapshot_date = DATE'2026-10-01');
+WHERE v.plant IN (SELECT DISTINCT plant FROM dev_gold.production.bom_item_history WHERE snapshot_date = DATE'2026-10-01');
 ```
 
 **10. Combien d'AF ont plusieurs versions valides ?**
@@ -204,13 +204,13 @@ Les AF sans quota prennent la version la plus anciennement valide.
 **12. Fantômes : nombre, sans BOM, imbriqués, boucles**
 ```sql
 SELECT COUNT(*) AS lignes_fantomes, COUNT(DISTINCT component_material_number) AS fantomes_distincts
-FROM dev_lab.lab_jules.bom_item_history WHERE snapshot_date = DATE'2026-10-01' AND is_phantom_item;
+FROM dev_gold.production.bom_item_history WHERE snapshot_date = DATE'2026-10-01' AND is_phantom_item;
 ```
 ```sql
-WITH p AS (SELECT DISTINCT plant, component_material_number AS phantom FROM dev_lab.lab_jules.bom_item_history
+WITH p AS (SELECT DISTINCT plant, component_material_number AS phantom FROM dev_gold.production.bom_item_history
            WHERE snapshot_date = DATE'2026-10-01' AND is_phantom_item),
 b AS (SELECT DISTINCT plant, material_number, MAX(CASE WHEN is_phantom_item THEN 1 ELSE 0 END) AS has_phantom_child
-      FROM dev_lab.lab_jules.bom_item_history WHERE snapshot_date = DATE'2026-10-01' GROUP BY plant, material_number)
+      FROM dev_gold.production.bom_item_history WHERE snapshot_date = DATE'2026-10-01' GROUP BY plant, material_number)
 SELECT COUNT(*) AS fantomes,
        SUM(CASE WHEN b.material_number IS NULL THEN 1 ELSE 0 END) AS sans_bom,
        SUM(CASE WHEN b.has_phantom_child = 1 THEN 1 ELSE 0 END) AS imbriques
@@ -220,8 +220,8 @@ FROM p LEFT JOIN b ON b.plant = p.plant AND b.material_number = p.phantom;
 -- boucles : un fantôme qui se contient lui-même (directement ou via un autre fantôme)
 SELECT COUNT(*) AS boucles FROM (
   SELECT x.plant, x.material_number, x.component_material_number
-  FROM dev_lab.lab_jules.bom_item_history x
-  JOIN dev_lab.lab_jules.bom_item_history y
+  FROM dev_gold.production.bom_item_history x
+  JOIN dev_gold.production.bom_item_history y
     ON y.snapshot_date = x.snapshot_date AND y.plant = x.plant AND y.material_number = x.component_material_number
   WHERE x.snapshot_date = DATE'2026-10-01' AND x.is_phantom_item AND y.is_phantom_item
     AND (y.component_material_number = x.material_number OR x.component_material_number = x.material_number)
@@ -232,7 +232,7 @@ Attendu : `boucles = 0`. `sans_bom` : ces fantômes resteront signalés `PHANTOM
 **13. Plusieurs numéros de BOM pour la même alternative (tailles de lot)**
 ```sql
 SELECT COUNT(*) AS alternatives_multi_bom FROM (
-  SELECT plant, material_number, BOM_alternative FROM dev_lab.lab_jules.bom_item_history
+  SELECT plant, material_number, BOM_alternative FROM dev_gold.production.bom_item_history
   WHERE snapshot_date = DATE'2026-10-01' GROUP BY plant, material_number, BOM_alternative
   HAVING COUNT(DISTINCT BOM_number) > 1);
 ```
@@ -291,7 +291,7 @@ SELECT COUNT(*) AS articles_usines_avec_plusieurs_branches FROM (
 SELECT COUNT(DISTINCT concat_ws('-', a.plant, a.material_number)) AS af_dans_A,
        COUNT(DISTINCT CASE WHEN m.Branch = 'IS' THEN concat_ws('-', a.plant, a.material_number) END) AS af_IS,
        COUNT(DISTINCT CASE WHEN m.Branch IS NULL THEN concat_ws('-', a.plant, a.material_number) END) AS af_sans_branche
-FROM dev_lab.lab_jules.bom_item_history a
+FROM dev_gold.production.bom_item_history a
 LEFT JOIN prod_gold.master_data.material_master_data_plant_exposed m
   ON ltrim('0', m.Material_Number) = a.material_number AND m.Plant = a.plant
 WHERE a.snapshot_date = DATE'2026-10-01';
@@ -303,14 +303,14 @@ Attendu : 0 article en double branche ; `af_sans_branche` négligeable.
 **14. Règles appliquées et fantômes**
 ```sql
 SELECT selection_rule, COUNT(DISTINCT concat_ws('-', plant, material_number)) AS nb_af
-FROM dev_lab.lab_jules.average_bom_history_debug
-WHERE snapshot_date = (SELECT MAX(snapshot_date) FROM dev_lab.lab_jules.average_bom_history_debug)
+FROM dev_gold.production.average_bom_history_debug
+WHERE snapshot_date = (SELECT MAX(snapshot_date) FROM dev_gold.production.average_bom_history_debug)
 GROUP BY selection_rule;
 ```
 ```sql
 SELECT explosion_status, COUNT(*) AS nb_lignes
-FROM dev_lab.lab_jules.average_bom_history_debug
-WHERE snapshot_date = (SELECT MAX(snapshot_date) FROM dev_lab.lab_jules.average_bom_history_debug)
+FROM dev_gold.production.average_bom_history_debug
+WHERE snapshot_date = (SELECT MAX(snapshot_date) FROM dev_gold.production.average_bom_history_debug)
 GROUP BY explosion_status;
 ```
 Attendu : `LOWEST_ALTERNATIVE` faible, `PHANTOM_WITHOUT_BOM` cohérent avec le contrôle 12, `PHANTOM_DEPTH_EXCEEDED` = 0.
@@ -318,8 +318,8 @@ Attendu : `LOWEST_ALTERNATIVE` faible, `PHANTOM_WITHOUT_BOM` cohérent avec le c
 **15. Le notebook reproduit-il l'indicateur existant ?** Au dernier snapshot, la version et l'alternative choisies doivent être celles de la table `average_bom` de production (branche IS seulement, d'où la jointure).
 ```sql
 WITH d AS (SELECT DISTINCT plant, material_number, production_version, BOM_alternative
-           FROM dev_lab.lab_jules.average_bom_history_debug
-           WHERE snapshot_date = (SELECT MAX(snapshot_date) FROM dev_lab.lab_jules.average_bom_history_debug)),
+           FROM dev_gold.production.average_bom_history_debug
+           WHERE snapshot_date = (SELECT MAX(snapshot_date) FROM dev_gold.production.average_bom_history_debug)),
 p AS (SELECT DISTINCT Plant AS plant, Material_Number AS material_number, Production_Version AS production_version, Alternative AS BOM_alternative
       FROM prod_proj.manuf_engineering.average_bom WHERE horizon = 12)
 SELECT COUNT(*) AS af_communes,

@@ -6,36 +6,31 @@
 # MAGIC Monthly history of the **average BOM** ("BOM commune"): for each manufactured article (AF) and plant, the single BOM that
 # MAGIC SAP considered *the* BOM of the article at the start of each month, phantoms exploded. One row per snapshot date x
 # MAGIC plant x AF x BOM line (component), quantities per unit of AF with component scrap included.
-# MAGIC It is the "as-designed" Forecast 3 of the BOM reliability use case (UC93) and answers the question
+# MAGIC It is the "as-designed" Forecast 3 of the BOM reliability use case and answers the question
 # MAGIC "what was the common BOM of this article on date X".
 # MAGIC
+# MAGIC
 # MAGIC **Highlighted complexities:**
-# MAGIC - Same selection rule as the existing Average BOM indicator (`create_proj_average_bom`), applied **at each snapshot date**
-# MAGIC   instead of today:
+# MAGIC - Same selection rule as the existing Average BOM indicator, applied **at each snapshot date** instead of today:
 # MAGIC   1. production versions that are not locked and valid at the snapshot date (`MKAL`, from the landing zone stack);
 # MAGIC   2. one version only: the quota arrangement version when there are several, else the earliest valid-from, else the lowest version id;
 # MAGIC   3. its BOM alternative is read in `bom_item_history`; an AF without usable production version takes its lowest alternative
 # MAGIC      (`selection_rule = LOWEST_ALTERNATIVE`).
-# MAGIC - Quota arrangements (`EQUK` header, `EQUP` items) are historised from their stacks exactly like the production versions; only the
-# MAGIC   version with the highest quota of each arrangement counts, as in the existing Average BOM.
+# MAGIC - Quota arrangements (`EQUK` header, `EQUP` items) are historised from their stacks like the production versions; only the
+# MAGIC   version with the highest quota of each arrangement counts.
 # MAGIC - Phantom assemblies (`MARC.SOBSL = 50`) are replaced by the BOM selected for the phantom itself (same snapshot, same plant),
 # MAGIC   up to `MAX_PHANTOM_DEPTH` levels. Exploded lines carry BOM item `9999` and the phantom chain. A phantom that cannot be exploded
 # MAGIC   is kept and flagged (`explosion_status`).
 # MAGIC - Scope: AF of the branch given by the `branch` widget (`IS` by default, empty = all branches), from `Branch` of the material master
-# MAGIC   of the AF in its plant (current value, not historised). Phantom assemblies are exploded whatever their own branch.
+# MAGIC   of the AF in its plant. Phantom assemblies are exploded whatever their own branch.
 # MAGIC - Bulk material and plant material status (`05`) are **flagged, not filtered**, and the `SPLIT` article is kept (identified by its
 # MAGIC   number): the use case decides.
 # MAGIC - Sources are the landing zone `*_stack` tables and the Gold `bom_item_history`; for each snapshot date the latest extraction
 # MAGIC   **strictly before** that date is used ("known at the start of the day").
 # MAGIC
-# MAGIC **Role in the BOM reliability measure:**
-# MAGIC - Forecast 3 (average BOM): `quantity_per_unit` x OF quantity + `quantity_per_order`, scrap already included.
-# MAGIC
-# MAGIC **Intended Pipeline**
-# MAGIC - M_2_Production_BOM_History_Data_Asset (to be confirmed), task after `create_gold_bom_item_history`
 # MAGIC
 # MAGIC **Inputs Data**
-# MAGIC - {PIPELINE_WRITE_ENV}_gold.production.bom_item_history
+# MAGIC - {PIPELINE_READ_ENV}_gold.production.bom_item_history
 # MAGIC - {REFERENCE_READ_ENV}_landingzone.sap_latecoere_ecc6.mkal_stack
 # MAGIC - {REFERENCE_READ_ENV}_landingzone.sap_latecoere_ecc6.marc_stack
 # MAGIC - {REFERENCE_READ_ENV}_landingzone.sap_latecoere_ecc6.equk_stack
@@ -51,7 +46,7 @@
 # MAGIC   (`SINGLE_ACTIVE_VERSION`, `QUOTA_VERSION`, `EARLIEST_ACTIVE_VERSION`, `LOWEST_ALTERNATIVE`).
 # MAGIC - `quantity_per_unit`: component quantity (base unit) for one unit of AF, scrap included, phantoms exploded; `0` for fixed-quantity items.
 # MAGIC - `quantity_per_order`: fixed quantity consumed once per order, scrap included; `0` for proportional items.
-# MAGIC - `branch`: branch (`IS` / `AS`) of the AF in its plant, current master data.
+# MAGIC - `branch`: branch (`IS` / `AS`) of the AF in its plant.
 # MAGIC - `explosion_status`: `DIRECT`, `EXPLODED`, `PHANTOM_WITHOUT_BOM`, `PHANTOM_DEPTH_EXCEEDED`.
 # MAGIC - `phantom_path`: phantom articles crossed from the AF to the component (empty when direct).
 
@@ -67,14 +62,19 @@ dbutils.library.restartPython()
 
 # MAGIC %md
 # MAGIC # Technical debt
-# MAGIC - Lab runs only, to remove before the move to Bitbucket: the `%pip install great_expectations` cell and its restart, `sys.path.insert(...)` (`leap_utils`) and the `persist` / `cache` patch (serverless) in the standard imports cell.
+# MAGIC - Intended pipeline / job: to be confirmed.
+# MAGIC - `great_expectations` and `leap_utils` must be declared as libraries of the job task (the `%pip` cell above is for interactive runs).
+# MAGIC - Quality checks run on non-persisted DataFrames: each expectation recomputes the chain from the stacks, which is
+# MAGIC   slow on a full rebuild.
+# MAGIC - Inherited from `bom_item_history`: MAST / STAS links before 2024-06-11 are back-dated from the first extraction, and the
+# MAGIC   base unit and descriptions are the current ones.
 # MAGIC - The branch of an AF is its current value in the material master: an article that changed branch is filtered with its current branch for all past snapshots.
 # MAGIC - The existing Average BOM notebooks disagree on the choice among several valid versions (`create_proj_average_bom`: quota, then earliest valid-from; `create_proj_bom_average_multilevel`: lowest alternative). The first one is applied here: to be confirmed.
 # MAGIC - Fallback `LOWEST_ALTERNATIVE`: the existing indicator keeps the BOM created first, but the creation date of the BOM header is not kept by `bom_item_history`.
-# MAGIC - A phantom that contains itself (loop) is cut at the second occurrence: the pre-run checks of the spec (§4, check 12) must return 0 loops.
-# MAGIC - A material can have several BOM numbers for the same alternative (lot size ranges, `MAST.losvn` / `losbs`): all are kept, an AMBER check counts them; spec §4, check 13, gives the expected count before the run.
-# MAGIC - `sap_number()`, `sap_flag()`, `sap_date()`, `month_starts()`, `build_snapshot_mapping()` are also defined in `create_gold_bom_item_history`: move them to `leap_utils` before the Bitbucket PR.
-# MAGIC - The first run after a change of `bom_item_history` snapshots must use `rebuild_mode = full`.
+# MAGIC - A phantom that contains itself (loop) is cut at the second occurrence.
+# MAGIC - A material can have several BOM numbers for the same alternative (lot size ranges, `MAST.losvn` / `losbs`): all are kept, an AMBER check counts them.
+# MAGIC - `sap_number()`, `sap_flag()`, `sap_date()`, `build_snapshot_mapping()` and `select_extractions()` are also defined in `create_gold_bom_item_history`: move them to `leap_utils` before the Bitbucket PR.
+# MAGIC - The first run after a change of `bom_item_history` must use `rebuild_mode = full`.
 
 # COMMAND ----------
 
@@ -89,27 +89,12 @@ dbutils.library.restartPython()
 # COMMAND ----------
 
 import datetime
-import sys
 import time
 from functools import reduce
 
 from pyspark.sql import functions as f
 from pyspark.sql.utils import AnalysisException
 from pyspark.sql.window import Window
-
-# Lab test runs only: leap_utils is read from a workspace folder. Remove before the move to Bitbucket,
-# where it is declared as a library of the job task.
-sys.path.insert(0, "/Workspace/Users/jules.gourio.external@latecoere.aero/dev_ict_FI_invoice")
-
-# Lab test runs on serverless compute only: persist / cache are not supported there and Great Expectations calls them.
-# Remove before the move to Bitbucket (job clusters support them).
-try:
-    from pyspark.sql.connect.dataframe import DataFrame as ConnectDataFrame
-
-    for method_name in ("persist", "cache", "unpersist"):
-        setattr(ConnectDataFrame, method_name, lambda self, *args, **kwargs: self)
-except ImportError:
-    pass
 
 # COMMAND ----------
 
@@ -130,67 +115,31 @@ from great_expectations.dataset import SparkDFDataset
 
 # COMMAND ----------
 
-# Values already typed in the widgets are kept when this cell is run again (removeAll resets them).
-WIDGET_NAMES = [
-    "pipeline_write_env",
-    "pipeline_read_env",
-    "reference_read_env",
-    "by_pass_quality_checks",
-    "lab_target_schema",
-    "debug",
-    "log_level",
-    "snapshot_from_date",
-    "debug_plant",
-    "rebuild_mode",
-    "branch",
-]
-PREVIOUS_WIDGET_VALUES = {}
-for widget_name in WIDGET_NAMES:
-    try:
-        PREVIOUS_WIDGET_VALUES[widget_name] = dbutils.widgets.get(widget_name)
-    except Exception:
-        pass
+dbutils.widgets.removeAll()
 
-dbutils.widgets.removeAll()  # must be the first widget call
-
-dbutils.widgets.text("pipeline_write_env", PREVIOUS_WIDGET_VALUES.get("pipeline_write_env", "dev"))
+dbutils.widgets.text("pipeline_write_env", "dev")
 PIPELINE_WRITE_ENV = dbutils.widgets.get("pipeline_write_env")
 
-dbutils.widgets.text("pipeline_read_env", PREVIOUS_WIDGET_VALUES.get("pipeline_read_env", "dev"))
+dbutils.widgets.text("pipeline_read_env", "dev")
 PIPELINE_READ_ENV = dbutils.widgets.get("pipeline_read_env")
 
-dbutils.widgets.text("reference_read_env", PREVIOUS_WIDGET_VALUES.get("reference_read_env", "prod"))
+dbutils.widgets.text("reference_read_env", "prod")
 REFERENCE_READ_ENV = dbutils.widgets.get("reference_read_env")
 
-dbutils.widgets.text("by_pass_quality_checks", PREVIOUS_WIDGET_VALUES.get("by_pass_quality_checks", "false"))
+dbutils.widgets.text("by_pass_quality_checks", "false")
 BYPASS_QUALITY_CHECKS = dbutils.widgets.get("by_pass_quality_checks").lower() == "true"
 
-# Lab test runs only: "<catalog>.<schema>" of the lab redirects every table this notebook writes, and
-# `bom_item_history` (same project) is then read from the same schema.
-# Always empty in jobs; never commit a non-empty default (hardcoded env = Convention Checker BLOCKER).
-dbutils.widgets.text("lab_target_schema", PREVIOUS_WIDGET_VALUES.get("lab_target_schema", ""))
-LAB_TARGET_SCHEMA = dbutils.widgets.get("lab_target_schema").strip()
+dbutils.widgets.text("debug", "False")
 
-# All widgets are created in this cell so that none disappears when it is run again.
-dbutils.widgets.text("debug", PREVIOUS_WIDGET_VALUES.get("debug", "False"))
+dbutils.widgets.dropdown("log_level", defaultValue="info", choices=["debug", "info", "warning", "error", "critical"])
 
-dbutils.widgets.dropdown(
-    "log_level",
-    defaultValue=PREVIOUS_WIDGET_VALUES.get("log_level", "info"),
-    choices=["debug", "info", "warning", "error", "critical"],
-)
+dbutils.widgets.text("snapshot_from_date", "")
 
-dbutils.widgets.text("snapshot_from_date", PREVIOUS_WIDGET_VALUES.get("snapshot_from_date", ""))
+dbutils.widgets.text("debug_plant", "")
 
-dbutils.widgets.text("debug_plant", PREVIOUS_WIDGET_VALUES.get("debug_plant", ""))
+dbutils.widgets.dropdown("rebuild_mode", defaultValue="full", choices=["full", "incremental"])
 
-dbutils.widgets.dropdown(
-    "rebuild_mode",
-    defaultValue=PREVIOUS_WIDGET_VALUES.get("rebuild_mode", "full"),
-    choices=["full", "incremental"],
-)
-
-dbutils.widgets.text("branch", PREVIOUS_WIDGET_VALUES.get("branch", "IS"))
+dbutils.widgets.text("branch", "IS")
 
 # COMMAND ----------
 
@@ -199,7 +148,8 @@ dbutils.widgets.text("branch", PREVIOUS_WIDGET_VALUES.get("branch", "IS"))
 # MAGIC `snapshot_from_date` (yyyy-MM-dd) and `debug_plant` shorten lab runs; both are empty in jobs. A debug run reads and writes
 # MAGIC the `*_debug` tables, like `create_gold_bom_item_history`.
 # MAGIC `branch` (`IS` by default, `AS`, or empty for all branches) restricts the output to the AF of that branch.
-# MAGIC `rebuild_mode`: `full` rewrites every snapshot; `incremental` only adds the snapshot dates of `bom_item_history` missing from the output table.
+# MAGIC `rebuild_mode`: `full` rewrites every snapshot; `incremental` only adds the snapshot dates of `bom_item_history` missing from the
+# MAGIC output table.
 
 # COMMAND ----------
 
@@ -232,18 +182,15 @@ log = logger.setup_applevel_logger(log_level=logger.LOGGER_MAPPING[LOG_LEVEL])
 
 # COMMAND ----------
 
-if LAB_TARGET_SCHEMA:
-    CATALOG, SCHEMA = LAB_TARGET_SCHEMA.split(".")
-else:
-    CATALOG = f"{PIPELINE_WRITE_ENV}_gold"
-    SCHEMA = "production"
-# A debug run holds a subset of the data: it reads and writes *_debug tables, so that it can never
-# overwrite the full history in the default table.
+CATALOG = f"{PIPELINE_WRITE_ENV}_gold"
+SCHEMA = "production"
+# A debug run (debug_plant or snapshot_from_date) holds a subset of the data: it reads and writes *_debug tables,
+# so that it can never overwrite the full history in the default table.
 DEBUG_RUN = bool(DEBUG_PLANT or SNAPSHOT_FROM_DATE)
 DEBUG_SUFFIX = "_debug" if DEBUG_RUN else ""
 DESTINATION_TABLE = f"average_bom_history{DEBUG_SUFFIX}"
 DESTINATION_TABLE_FULL_PATH = f"{CATALOG}.{SCHEMA}.{DESTINATION_TABLE}"
-SOURCE_BOM_TABLE_FULL_PATH = f"{CATALOG}.{SCHEMA}.bom_item_history{DEBUG_SUFFIX}"
+SOURCE_BOM_TABLE_FULL_PATH = f"{PIPELINE_READ_ENV}_gold.{SCHEMA}.bom_item_history{DEBUG_SUFFIX}"
 
 INCREMENTAL_LOAD = REBUILD_MODE == "incremental" and table_utils.UnityCatalogCheckTableExists(
     DESTINATION_TABLE_FULL_PATH
@@ -261,48 +208,81 @@ log.info(f"Rebuild mode: {REBUILD_MODE}, incremental load: {INCREMENTAL_LOAD}")
 
 LANDING_ZONE_SCHEMA = f"{REFERENCE_READ_ENV}_landingzone.sap_latecoere_ecc6"
 
-FULL_EXTRACTION = "FULL"  # MARC also contains partial DELTA extractions
+FULL_EXTRACTION = "FULL"  # MARC and the quota stacks can also contain partial DELTA extractions
 LATEST_ROW_ORDER = ["_ingestion_timestamp", "_stack_row_id"]  # a source extraction can repeat a row
 EXCLUDED_ITEM_CATEGORIES = ["D", "T"]  # document and text items: no material
 PHANTOM_ITEM_NUMBER = "9999"
 MAX_PHANTOM_DEPTH = 7  # same depth as the existing Average BOM notebook
+SELECTION_KEYS = ["snapshot_date", "plant", "material_number"]
 
 # COMMAND ----------
 
 # MAGIC %md
 # MAGIC ## Config Helper Functions
-# MAGIC - `sap_number`: SAP text number -> double (trailing minus, padding).
+# MAGIC ### SAP conversion helpers
+# MAGIC SAP extractions are text only: numbers, flags and dates need a safe conversion.
+# MAGIC - `sap_number`: SAP text number -> double. SAP writes negatives with a trailing minus (`1.000-`) and pads with
+# MAGIC   spaces; a bare cast would return NULL or fail.
 # MAGIC - `sap_flag`: SAP indicator `'X'` -> `True`, anything else -> `False`.
-# MAGIC - `sap_date`: SAP `yyyyMMdd` text -> date.
-# MAGIC - `build_snapshot_mapping`: for each snapshot date, the latest extraction strictly before it.
-# MAGIC - `check_required_columns`: stops the notebook with the list of missing columns instead of failing later in a join.
+# MAGIC - `sap_date`: SAP `yyyyMMdd` text -> date, NULL for `00000000` or invalid text.
 
 # COMMAND ----------
 
-def check_required_columns(df, table_label, required_columns):
-    existing = {c.lower() for c in df.columns}
-    missing = sorted(c for c in required_columns if c.lower() not in existing)
-    if missing:
-        raise ValueError(f"{table_label}: missing columns {missing}. Columns found: {sorted(df.columns)}")
-
-
 def sap_number(column_name):
+    """Convert an SAP text number (trailing minus, space padding) to a double.
+
+    :param column_name: name of the SAP text column
+    :type column_name: str
+    :return: double column, NULL when the text is not a number
+    :rtype: pyspark.sql.Column
+    """
     raw = f.trim(f.col(column_name))
     value = f.expr(f"try_cast(regexp_replace(trim({column_name}), '-$', '') AS DOUBLE)")
     return f.when(raw.endswith("-"), -value).otherwise(value)
 
 
 def sap_flag(column_name):
+    """Convert an SAP indicator to a boolean (``'X'`` -> True, anything else -> False).
+
+    :param column_name: name of the SAP indicator column
+    :type column_name: str
+    :return: non-null boolean column
+    :rtype: pyspark.sql.Column
+    """
     return f.coalesce(f.trim(f.col(column_name)) == "X", f.lit(False))
 
 
 def sap_date(column_name):
+    """Convert an SAP ``yyyyMMdd`` text date to a date.
+
+    :param column_name: name of the SAP date column
+    :type column_name: str
+    :return: date column, NULL when the text is not a valid date
+    :rtype: pyspark.sql.Column
+    """
     return f.try_to_date(f.trim(f.col(column_name)), "yyyyMMdd")
 
+# COMMAND ----------
+
+# MAGIC %md
+# MAGIC ### Snapshot calendar helpers
+# MAGIC The snapshot dates are those of `bom_item_history` (first day of each month); each snapshot uses the latest extraction
+# MAGIC strictly before it ("known at the start of the day"). A source that starts later than the others can reuse its first extraction.
+
+# COMMAND ----------
 
 def build_snapshot_mapping(extraction_timestamps, snapshot_dates, backdate_first=False):
-    """(snapshot_date, extraction_timestamp, _is_backdated): latest extraction strictly before the snapshot date.
-    With backdate_first, snapshot dates older than the first extraction use the first extraction."""
+    """Map each snapshot date to the latest extraction strictly before it.
+
+    :param extraction_timestamps: extraction timestamps of the stack
+    :type extraction_timestamps: list[datetime.datetime]
+    :param snapshot_dates: snapshot dates of the calendar
+    :type snapshot_dates: list[datetime.date]
+    :param backdate_first: if True, snapshot dates older than the first extraction use the first extraction
+    :type backdate_first: bool
+    :return: DataFrame (snapshot_date, extraction_timestamp, _is_backdated)
+    :rtype: pyspark.sql.DataFrame
+    """
     rows = []
     for snapshot_date in snapshot_dates:
         eligible = [ts for ts in extraction_timestamps if ts.date() < snapshot_date]
@@ -314,14 +294,64 @@ def build_snapshot_mapping(extraction_timestamps, snapshot_dates, backdate_first
         rows, "snapshot_date date, extraction_timestamp timestamp, _is_backdated boolean"
     )
 
+# COMMAND ----------
+
+# MAGIC %md
+# MAGIC ### Extraction selection helpers
+# MAGIC - `select_extractions`: keeps only the extractions used by the calendar (partition pruning) and tags them with their snapshot date.
+# MAGIC - `list_full_extraction_timestamps`: extraction timestamps of the `FULL` extractions of a stack.
+# MAGIC - `check_required_columns`: stops the notebook with the list of missing columns instead of failing later in a join.
+
+# COMMAND ----------
 
 def select_extractions(df_raw, df_map):
-    """Keep only the extractions used by the calendar (partition pruning), tagged with their snapshot date(s).
-    One extraction can serve several snapshot dates when an extraction is missing: intended."""
-    used_timestamps = [r["extraction_timestamp"] for r in df_map.select("extraction_timestamp").distinct().collect()]
+    """Keep only the extractions used by the calendar, tagged with their snapshot date(s).
+
+    One extraction can serve several snapshot dates when an extraction is missing: intended.
+
+    :param df_raw: stack DataFrame with an ``extraction_timestamp`` column
+    :type df_raw: pyspark.sql.DataFrame
+    :param df_map: output of ``build_snapshot_mapping``
+    :type df_map: pyspark.sql.DataFrame
+    :return: stack rows joined to their snapshot date(s)
+    :rtype: pyspark.sql.DataFrame
+    """
+    used_timestamps = [row["extraction_timestamp"] for row in df_map.select("extraction_timestamp").distinct().collect()]
     return df_raw.filter(f.col("extraction_timestamp").isin(used_timestamps)).join(
         f.broadcast(df_map), ["extraction_timestamp"], how="inner"
     )
+
+
+def list_full_extraction_timestamps(df_raw):
+    """Extraction timestamps of the ``FULL`` extractions of a stack.
+
+    :param df_raw: stack DataFrame with ``extraction_timestamp`` and ``file_mode`` columns
+    :type df_raw: pyspark.sql.DataFrame
+    :return: sorted extraction timestamps
+    :rtype: list[datetime.datetime]
+    """
+    return sorted(
+        row["extraction_timestamp"]
+        for row in df_raw.filter(f.col("file_mode") == FULL_EXTRACTION)
+        .select("extraction_timestamp").distinct().collect()
+    )
+
+
+def check_required_columns(df, table_label, required_columns):
+    """Raise an error listing the expected columns that a DataFrame does not have (case insensitive).
+
+    :param df: DataFrame to check
+    :type df: pyspark.sql.DataFrame
+    :param table_label: name of the table, used in the error message
+    :type table_label: str
+    :param required_columns: columns the notebook reads by name
+    :type required_columns: list[str]
+    :raises ValueError: if at least one column is missing
+    """
+    existing_columns = {column.lower() for column in df.columns}
+    missing_columns = sorted(column for column in required_columns if column.lower() not in existing_columns)
+    if missing_columns:
+        raise ValueError(f"{table_label}: missing columns {missing_columns}. Columns found: {sorted(df.columns)}")
 
 # COMMAND ----------
 
@@ -337,7 +367,7 @@ def select_extractions(df_raw, df_map):
 
 # MAGIC %md
 # MAGIC ### Gold table of this project
-# MAGIC The standard BOM of every article at each snapshot date, all alternatives. Read from the lab schema during lab runs.
+# MAGIC The standard BOM of every article at each snapshot date, all alternatives.
 
 # COMMAND ----------
 
@@ -347,8 +377,8 @@ df_bom_raw = spark.read.table(SOURCE_BOM_TABLE_FULL_PATH)
 
 # MAGIC %md
 # MAGIC ### Landing zone stacks
-# MAGIC Full SAP extractions appended at each `extraction_timestamp`: production versions (`MKAL`), quota arrangements (`EQUK`, `EQUP`) and article status (`MARC`).
-# MAGIC Bronze `_latest` tables only hold the last extraction.
+# MAGIC Full SAP extractions appended at each `extraction_timestamp`: production versions (`MKAL`), quota arrangements (`EQUK`, `EQUP`)
+# MAGIC and article status (`MARC`). Bronze `_latest` tables only hold the last extraction.
 
 # COMMAND ----------
 
@@ -366,6 +396,16 @@ df_equp_raw = spark.read.table(f"{LANDING_ZONE_SCHEMA}.equp_stack")
 # COMMAND ----------
 
 df_master_data_raw = spark.read.table(f"{REFERENCE_READ_ENV}_gold.master_data.material_master_data_plant_exposed")
+
+# COMMAND ----------
+
+# MAGIC %md
+# MAGIC ### Output table (incremental mode only)
+# MAGIC The snapshot dates already stored are skipped: a stack extraction never changes, so a stored snapshot is final.
+
+# COMMAND ----------
+
+df_destination_raw = spark.read.table(DESTINATION_TABLE_FULL_PATH) if INCREMENTAL_LOAD else None
 
 # COMMAND ----------
 
@@ -399,17 +439,18 @@ check_required_columns(
     "marc_stack",
     ["extraction_timestamp", "ingestion_timestamp", "file_mode", "stack_row_id", "matnr", "werks", "mmsta"],
 )
-check_required_columns(df_master_data_raw, "material_master_data_plant_exposed", ["Material_Number", "Plant", "Branch"])
 check_required_columns(
     df_equk_raw,
     "equk_stack",
-    ["extraction_timestamp", "ingestion_timestamp", "file_mode", "stack_row_id", "qunum", "matnr", "werks", "vdatu", "bdatu"],
+    ["extraction_timestamp", "ingestion_timestamp", "file_mode", "stack_row_id", "qunum", "matnr", "werks",
+     "vdatu", "bdatu"],
 )
 check_required_columns(
     df_equp_raw,
     "equp_stack",
     ["extraction_timestamp", "ingestion_timestamp", "file_mode", "stack_row_id", "qunum", "qupos", "verid", "quote"],
 )
+check_required_columns(df_master_data_raw, "material_master_data_plant_exposed", ["Material_Number", "Plant", "Branch"])
 
 # COMMAND ----------
 
@@ -419,26 +460,10 @@ check_required_columns(
 
 # COMMAND ----------
 
-mkal_timestamps = sorted(
-    r["extraction_timestamp"]
-    for r in df_mkal_raw.filter(f.col("file_mode") == FULL_EXTRACTION)
-    .select("extraction_timestamp").distinct().collect()
-)
-marc_timestamps = sorted(
-    r["extraction_timestamp"]
-    for r in df_marc_raw.filter(f.col("file_mode") == FULL_EXTRACTION)
-    .select("extraction_timestamp").distinct().collect()
-)
-equk_timestamps = sorted(
-    r["extraction_timestamp"]
-    for r in df_equk_raw.filter(f.col("file_mode") == FULL_EXTRACTION)
-    .select("extraction_timestamp").distinct().collect()
-)
-equp_timestamps = sorted(
-    r["extraction_timestamp"]
-    for r in df_equp_raw.filter(f.col("file_mode") == FULL_EXTRACTION)
-    .select("extraction_timestamp").distinct().collect()
-)
+mkal_timestamps = list_full_extraction_timestamps(df_mkal_raw)
+marc_timestamps = list_full_extraction_timestamps(df_marc_raw)
+equk_timestamps = list_full_extraction_timestamps(df_equk_raw)
+equp_timestamps = list_full_extraction_timestamps(df_equp_raw)
 
 # COMMAND ----------
 
@@ -448,21 +473,20 @@ equp_timestamps = sorted(
 # COMMAND ----------
 
 # MAGIC %md
-# MAGIC ##Prep1 - Snapshot calendar
+# MAGIC ## Prep1 - Snapshot calendar
 # MAGIC The snapshot dates are those of `bom_item_history` (first day of each month), so both tables always describe the same dates.
 # MAGIC For each stack, the extraction used is the latest one **strictly before** the snapshot date.
 
 # COMMAND ----------
 
-SNAPSHOT_DATES = sorted(r["snapshot_date"] for r in df_bom_raw.select("snapshot_date").distinct().collect())
+SNAPSHOT_DATES = sorted(row["snapshot_date"] for row in df_bom_raw.select("snapshot_date").distinct().collect())
 if SNAPSHOT_FROM_DATE:
-    SNAPSHOT_DATES = [d for d in SNAPSHOT_DATES if d >= datetime.date.fromisoformat(SNAPSHOT_FROM_DATE)]
+    SNAPSHOT_DATES = [day for day in SNAPSHOT_DATES if day >= datetime.date.fromisoformat(SNAPSHOT_FROM_DATE)]
 if INCREMENTAL_LOAD:
     stored_snapshot_dates = {
-        r["snapshot_date"]
-        for r in spark.read.table(DESTINATION_TABLE_FULL_PATH).select("snapshot_date").distinct().collect()
+        row["snapshot_date"] for row in df_destination_raw.select("snapshot_date").distinct().collect()
     }
-    SNAPSHOT_DATES = [d for d in SNAPSHOT_DATES if d not in stored_snapshot_dates]
+    SNAPSHOT_DATES = [day for day in SNAPSHOT_DATES if day not in stored_snapshot_dates]
 if not SNAPSHOT_DATES:
     log.info("No new snapshot date to load")
     dbutils.notebook.exit("No new snapshot date to load")
@@ -476,17 +500,13 @@ df_map_equp = build_snapshot_mapping(equp_timestamps, SNAPSHOT_DATES)
 # COMMAND ----------
 
 # MAGIC %md
-# MAGIC ##Prep2 - Standard BOM items (bom_item_history)
+# MAGIC ## Prep2 - Standard BOM items (bom_item_history)
 # MAGIC All alternatives of the snapshot dates to build. Items without component (document / text items) are dropped.
 # MAGIC Quantities per unit: proportional items are divided by the BOM base quantity, fixed-quantity items are per order
 # MAGIC (`0` in the other column). Component scrap is the BOM item scrap, else the article scrap (SAP rule); the scrap factor is
 # MAGIC applied here so that phantom explosion multiplies final quantities.
 
 # COMMAND ----------
-
-df_item_prep = df_bom_raw.filter(f.col("snapshot_date").isin(SNAPSHOT_DATES))
-if DEBUG_PLANT:
-    df_item_prep = df_item_prep.filter(f.col("plant") == DEBUG_PLANT)
 
 LINE_COLUMNS = [
     "snapshot_date",
@@ -512,6 +532,10 @@ LINE_COLUMNS = [
     "_BOM_extraction_timestamp",
 ]
 
+df_item_prep = df_bom_raw.filter(f.col("snapshot_date").isin(SNAPSHOT_DATES))
+if DEBUG_PLANT:
+    df_item_prep = df_item_prep.filter(f.col("plant") == DEBUG_PLANT)
+
 df_item_prep = (
     df_item_prep.filter(f.col("component_material_number").isNotNull())
     .filter(~f.coalesce(f.col("BOM_item_category"), f.lit("")).isin(EXCLUDED_ITEM_CATEGORIES))
@@ -524,9 +548,7 @@ df_item_prep = (
     )
     .withColumn(
         "quantity_per_unit",
-        f.when(
-            f.col("is_fixed_quantity"), f.lit(0.0)
-        ).otherwise(
+        f.when(f.col("is_fixed_quantity"), f.lit(0.0)).otherwise(
             f.try_divide(f.col("component_quantity_in_base_unit"), f.col("BOM_base_quantity")) * f.col("scrap_factor")
         ),
     )
@@ -540,12 +562,10 @@ df_item_prep = (
     .select(*LINE_COLUMNS)
 )
 
-df_gx_item = SparkDFDataset(df_item_prep, persist=False)
-
 # COMMAND ----------
 
 # MAGIC %md
-# MAGIC ##Prep3 - Alternatives available at each snapshot date
+# MAGIC ## Prep3 - Alternatives available at each snapshot date
 # MAGIC The production version is only usable if the BOM alternative it points to exists at the snapshot date
 # MAGIC (status not excluded, items present). One row per (snapshot, plant, AF, alternative).
 
@@ -553,12 +573,10 @@ df_gx_item = SparkDFDataset(df_item_prep, persist=False)
 
 df_alternative_prep = df_item_prep.select("snapshot_date", "plant", "material_number", "BOM_alternative").distinct()
 
-df_gx_alternative = SparkDFDataset(df_alternative_prep, persist=False)
-
 # COMMAND ----------
 
 # MAGIC %md
-# MAGIC ##Prep4 - Production versions valid at the snapshot date (MKAL)
+# MAGIC ## Prep4 - Production versions valid at the snapshot date (MKAL)
 # MAGIC Not locked and valid at the snapshot date (`valid from <= date < valid to`), as in the existing Average BOM.
 # MAGIC `stlal` is the BOM alternative of the version.
 
@@ -596,15 +614,12 @@ df_mkal_prep = table_utils.drop_duplicates_by_order(
     keep="last",
 ).drop(*LATEST_ROW_ORDER)
 
-df_gx_mkal = SparkDFDataset(df_mkal_prep, persist=False)
-
 # COMMAND ----------
 
 # MAGIC %md
-# MAGIC ##Prep5 - Quota arrangement versions (EQUK, EQUP)
-# MAGIC Used only to choose among several valid versions. Arrangements valid at the snapshot date (`EQUK`), their items (`EQUP`)
-# MAGIC with a quota above 0; per arrangement, the version with the highest quota (no quota-weighted average: same simplification
-# MAGIC as the existing Average BOM). An item without production version (external procurement) matches no version.
+# MAGIC ## Prep5 - Quota arrangements (EQUK, EQUP)
+# MAGIC Used only to choose among several valid versions. Arrangements valid at the snapshot date (`EQUK`) and their items (`EQUP`)
+# MAGIC with a quota above 0.
 
 # COMMAND ----------
 
@@ -632,8 +647,6 @@ df_equk_prep = table_utils.drop_duplicates_by_order(
     df=df_equk_prep, columns=["snapshot_date", "quota_number"], order_col=LATEST_ROW_ORDER, keep="last"
 ).drop(*LATEST_ROW_ORDER)
 
-df_gx_equk = SparkDFDataset(df_equk_prep, persist=False)
-
 # COMMAND ----------
 
 EQUP_COLUMNS = [
@@ -655,7 +668,12 @@ df_equp_prep = table_utils.drop_duplicates_by_order(
     df=df_equp_prep, columns=["snapshot_date", "quota_number", "quota_item"], order_col=LATEST_ROW_ORDER, keep="last"
 ).drop(*LATEST_ROW_ORDER)
 
-df_gx_equp = SparkDFDataset(df_equp_prep, persist=False)
+# COMMAND ----------
+
+# MAGIC %md
+# MAGIC ### Quota version of each arrangement
+# MAGIC Per arrangement, the version with the highest quota (no quota-weighted average: same simplification as the existing Average BOM).
+# MAGIC An item without production version (external procurement) matches no version.
 
 # COMMAND ----------
 
@@ -665,20 +683,18 @@ window_quota = Window.partitionBy("snapshot_date", "quota_number").orderBy(
 
 df_quota_prep = (
     df_equk_prep.join(df_equp_prep, ["snapshot_date", "quota_number"], how="inner")
-    .withColumn("rn", f.row_number().over(window_quota))
-    .filter("rn = 1")
+    .withColumn("row_rank", f.row_number().over(window_quota))
+    .filter("row_rank = 1")
     .filter(f.col("production_version").isNotNull())
     .select("snapshot_date", "plant", "material_number", "production_version")
     .distinct()
     .withColumn("is_quota_version", f.lit(True))
 )
 
-df_gx_quota = SparkDFDataset(df_quota_prep, persist=False)
-
 # COMMAND ----------
 
 # MAGIC %md
-# MAGIC ##Prep5b - Branch of the manufactured articles
+# MAGIC ## Prep6 - Branch of the manufactured articles
 # MAGIC `Branch` of the AF in its plant, used to keep the scope of the request (`IS`). Distinct rows first, so that an article with two
 # MAGIC different branches in the same plant is caught by the uniqueness check.
 
@@ -691,12 +707,10 @@ df_branch_prep = df_master_data_raw.select(
 ).distinct()
 df_branch_prep = table_utils.remove_leading_zeros(df=df_branch_prep, column_names=["material_number"])
 
-df_gx_branch = SparkDFDataset(df_branch_prep, persist=False)
-
 # COMMAND ----------
 
 # MAGIC %md
-# MAGIC ##Prep6 - Plant status of the components (MARC)
+# MAGIC ## Prep7 - Plant status of the components (MARC)
 # MAGIC `mmsta` is the plant-specific material status (`05` = everything available to launch production). Flag only, no filter.
 
 # COMMAND ----------
@@ -722,8 +736,6 @@ df_marc_prep = table_utils.drop_duplicates_by_order(
     keep="last",
 ).drop(*LATEST_ROW_ORDER)
 
-df_gx_marc = SparkDFDataset(df_marc_prep, persist=False)
-
 # COMMAND ----------
 
 # MAGIC %md
@@ -734,32 +746,32 @@ df_gx_marc = SparkDFDataset(df_marc_prep, persist=False)
 # MAGIC %md
 # MAGIC ## Tr. 1 - Candidate production versions
 # MAGIC Only versions whose BOM alternative exists at the snapshot date are candidates (INNER on the alternatives of Prep3).
-# MAGIC The quota flag is added (LEFT) and the number of candidates per AF counted.
 
 # COMMAND ----------
 
 df_candidate = df_mkal_prep.join(
     df_alternative_prep, ["snapshot_date", "plant", "material_number", "BOM_alternative"], how="inner"
 )
-log.info("Joined alternatives on snapshot_date/plant/material_number/BOM_alternative - uniqueness checked in Quality Checks")
+
+# COMMAND ----------
+
+# MAGIC %md
+# MAGIC ### Quota flag
+# MAGIC A candidate is a quota version when it is the version of an arrangement valid at the snapshot date (LEFT).
 
 # COMMAND ----------
 
 df_candidate = df_candidate.join(
     df_quota_prep, ["snapshot_date", "plant", "material_number", "production_version"], how="left"
 ).withColumn("is_quota_version", f.coalesce(f.col("is_quota_version"), f.lit(False)))
-log.info("Joined quota versions on snapshot_date/plant/material_number/production_version - uniqueness checked in Quality Checks")
 
 # COMMAND ----------
 
 # MAGIC %md
 # MAGIC ## Tr. 2 - One BOM per AF and snapshot date
-# MAGIC Rule: the quota version, else the earliest valid-from, else the lowest version id. An AF with no candidate takes its lowest
-# MAGIC alternative (`LOWEST_ALTERNATIVE`).
+# MAGIC Rule: the quota version, else the earliest valid-from, else the lowest version id. The number of candidates per AF is counted.
 
 # COMMAND ----------
-
-SELECTION_KEYS = ["snapshot_date", "plant", "material_number"]
 
 window_selection = Window.partitionBy(*SELECTION_KEYS)
 window_selection_rank = window_selection.orderBy(
@@ -768,8 +780,8 @@ window_selection_rank = window_selection.orderBy(
 
 df_selected_version = (
     df_candidate.withColumn("nb_active_versions", f.count(f.lit(1)).over(window_selection))
-    .withColumn("rn", f.row_number().over(window_selection_rank))
-    .filter("rn = 1")
+    .withColumn("row_rank", f.row_number().over(window_selection_rank))
+    .filter("row_rank = 1")
     .withColumn(
         "selection_rule",
         f.when(f.col("nb_active_versions") == 1, f.lit("SINGLE_ACTIVE_VERSION"))
@@ -781,12 +793,18 @@ df_selected_version = (
 
 # COMMAND ----------
 
+# MAGIC %md
+# MAGIC ### Fallback: lowest alternative
+# MAGIC An AF with no candidate version takes its lowest alternative (`LOWEST_ALTERNATIVE`).
+
+# COMMAND ----------
+
 window_lowest_alternative = Window.partitionBy(*SELECTION_KEYS).orderBy(f.asc("BOM_alternative"))
 
 df_fallback_version = (
     df_alternative_prep.join(df_selected_version.select(*SELECTION_KEYS), SELECTION_KEYS, how="left_anti")
-    .withColumn("rn", f.row_number().over(window_lowest_alternative))
-    .filter("rn = 1")
+    .withColumn("row_rank", f.row_number().over(window_lowest_alternative))
+    .filter("row_rank = 1")
     .withColumn("production_version", f.lit(None).cast("string"))
     .withColumn("selection_rule", f.lit("LOWEST_ALTERNATIVE"))
     .withColumn("nb_active_versions", f.lit(0).cast("long"))
@@ -794,8 +812,6 @@ df_fallback_version = (
 )
 
 df_selection = df_selected_version.unionByName(df_fallback_version)
-
-df_gx_selection = SparkDFDataset(df_selection, persist=False)
 
 # COMMAND ----------
 
@@ -806,15 +822,25 @@ df_gx_selection = SparkDFDataset(df_selection, persist=False)
 
 # COMMAND ----------
 
-df_direct = df_item_prep.join(
-    df_selection, [*SELECTION_KEYS, "BOM_alternative"], how="inner"
-)
-log.info("Joined selection on snapshot_date/plant/material_number/BOM_alternative - uniqueness checked in Quality Checks")
+df_direct = df_item_prep.join(df_selection, [*SELECTION_KEYS, "BOM_alternative"], how="inner")
 
 # COMMAND ----------
 
 # MAGIC %md
-# MAGIC ## Tr. 4 - Phantom explosion
+# MAGIC ## Tr. 4 - Branch scope
+# MAGIC The branch applies to the AF only: the children used to explode the phantoms come from the unfiltered lines.
+
+# COMMAND ----------
+
+df_direct_branch = df_direct.join(df_branch_prep, ["material_number", "plant"], how="left")
+
+df_direct_scope = df_direct_branch.filter(f.col("branch") == BRANCH) if BRANCH else df_direct_branch
+log.info(f"Scope: branch {BRANCH}" if BRANCH else "Scope: all branches")
+
+# COMMAND ----------
+
+# MAGIC %md
+# MAGIC ## Tr. 5 - Phantom explosion
 # MAGIC A phantom line is replaced by the lines of the BOM selected for the phantom article (same snapshot, same plant):
 # MAGIC `quantity_per_unit = child x parent`, `quantity_per_order = child per unit x parent per order + child per order`.
 # MAGIC Exploded lines get BOM item `9999`. Nested phantoms are exploded at the next level, up to `MAX_PHANTOM_DEPTH`.
@@ -839,14 +865,6 @@ df_child = df_direct.select(
 )
 
 df_child_keys = df_child.select("snapshot_date", "plant", "phantom_material_number").distinct()
-
-# The branch scope applies to the AF only: the children (phantom assemblies) come from the unfiltered lines
-df_direct_scope = df_direct.join(df_branch_prep, ["material_number", "plant"], how="left")
-log.info("Joined branch on material_number/plant - key uniqueness and null rate checked in Quality Checks")
-df_gx_direct_branch = SparkDFDataset(df_direct_scope, persist=False)
-if BRANCH:
-    df_direct_scope = df_direct_scope.filter(f.col("branch") == BRANCH)
-    log.info(f"Scope limited to the AF of branch {BRANCH}")
 
 df_level_0 = (
     df_direct_scope.withColumn("explosion_level", f.lit(0))
@@ -914,16 +932,14 @@ for level in range(1, MAX_PHANTOM_DEPTH + 1):
     )
     df_phantom_lines = df_exploded.filter(f.col("is_phantom_item"))
 
-df_unexploded_parts.append(
-    df_phantom_lines.withColumn("explosion_status", f.lit("PHANTOM_DEPTH_EXCEEDED"))
-)
+df_unexploded_parts.append(df_phantom_lines.withColumn("explosion_status", f.lit("PHANTOM_DEPTH_EXCEEDED")))
 
-df_transf = reduce(lambda a, b: a.unionByName(b), df_leaf_parts + df_unexploded_parts)
+df_transf = reduce(lambda df_left, df_right: df_left.unionByName(df_right), df_leaf_parts + df_unexploded_parts)
 
 # COMMAND ----------
 
 # MAGIC %md
-# MAGIC ## Tr. 5 - Phantom path and plant status of the component
+# MAGIC ## Tr. 6 - Phantom path and plant status of the component
 # MAGIC `phantom_path` lists the phantom articles crossed (empty when direct). The component plant status is a flag (LEFT).
 
 # COMMAND ----------
@@ -932,15 +948,12 @@ df_transf = df_transf.withColumn("phantom_path", f.array_join(f.col("phantom_cha
 
 # COMMAND ----------
 
-df_transf = df_transf.join(
-    df_marc_prep, ["snapshot_date", "plant", "component_material_number"], how="left"
-)
-log.info("Joined MARC on snapshot_date/plant/component_material_number - key uniqueness checked in Quality Checks")
+df_transf = df_transf.join(df_marc_prep, ["snapshot_date", "plant", "component_material_number"], how="left")
 
 # COMMAND ----------
 
 # MAGIC %md
-# MAGIC ## Tr. 6 - Create ID column and put it first
+# MAGIC ## Tr. 7 - Create ID column and put it first
 # MAGIC The grain is the line of the AF BOM: snapshot, plant, AF, then the chain `BOM_number:BOM_node` from the AF line down to the
 # MAGIC component line (a single token when direct).
 
@@ -1005,6 +1018,15 @@ df_transf = df_transf.select(*OUTPUT_COLUMNS)
 validation_level = "AMBER" if BYPASS_QUALITY_CHECKS else "RED"
 
 df_gx_final = SparkDFDataset(df_transf, persist=False)
+df_gx_alternative = SparkDFDataset(df_alternative_prep, persist=False)
+df_gx_mkal = SparkDFDataset(df_mkal_prep, persist=False)
+df_gx_equk = SparkDFDataset(df_equk_prep, persist=False)
+df_gx_equp = SparkDFDataset(df_equp_prep, persist=False)
+df_gx_quota = SparkDFDataset(df_quota_prep, persist=False)
+df_gx_branch = SparkDFDataset(df_branch_prep, persist=False)
+df_gx_marc = SparkDFDataset(df_marc_prep, persist=False)
+df_gx_selection = SparkDFDataset(df_selection, persist=False)
+
 red_quality_check_results = [
     # PK of the final table
     df_gx_final.expect_column_values_to_not_be_null(column=PK_COL),
@@ -1016,14 +1038,14 @@ red_quality_check_results = [
     df_gx_mkal.expect_compound_columns_to_be_unique(
         ["snapshot_date", "plant", "material_number", "production_version"]
     ),
+    df_gx_equk.expect_compound_columns_to_be_unique(["snapshot_date", "quota_number"]),
+    df_gx_equp.expect_compound_columns_to_be_unique(["snapshot_date", "quota_number", "quota_item"]),
     df_gx_quota.expect_compound_columns_to_be_unique(
         ["snapshot_date", "plant", "material_number", "production_version"]
     ),
     df_gx_branch.expect_compound_columns_to_be_unique(["material_number", "plant"]),
-    df_gx_equk.expect_compound_columns_to_be_unique(["snapshot_date", "quota_number"]),
-    df_gx_equp.expect_compound_columns_to_be_unique(["snapshot_date", "quota_number", "quota_item"]),
-    df_gx_selection.expect_compound_columns_to_be_unique(["snapshot_date", "plant", "material_number"]),
     df_gx_marc.expect_compound_columns_to_be_unique(["snapshot_date", "plant", "component_material_number"]),
+    df_gx_selection.expect_compound_columns_to_be_unique(SELECTION_KEYS),
 ]
 
 gx_validation.validate_and_log_gx_results(
@@ -1032,7 +1054,7 @@ gx_validation.validate_and_log_gx_results(
     info_message="All checks inspection",
     error_message="Quality checks failed for average_bom_history table, please check log messages",
     pipeline_write_env=PIPELINE_WRITE_ENV,
-    table_name="average_bom_history",
+    table_name=DESTINATION_TABLE,
     log_to_event_table=True,
     log_successes=True,
 )
@@ -1049,8 +1071,8 @@ gx_validation.validate_and_log_gx_results(
 
 # COMMAND ----------
 
-df_bom_number_check = df_direct.select(*SELECTION_KEYS, "BOM_number").distinct()
-df_gx_bom_number = SparkDFDataset(df_bom_number_check, persist=False)
+df_gx_direct_branch = SparkDFDataset(df_direct_branch, persist=False)
+df_gx_bom_number = SparkDFDataset(df_direct.select(*SELECTION_KEYS, "BOM_number").distinct(), persist=False)
 
 amber_quality_check_results = [
     df_gx_direct_branch.expect_column_values_to_not_be_null(column="branch", mostly=0.99),
@@ -1069,7 +1091,7 @@ gx_validation.validate_and_log_gx_results(
     info_message="Production version found, phantoms exploded, quantities and plant status populated",
     error_message="Missing production version / unexploded phantom / unknown quantity - check MKAL, bom_item_history and MARC",
     pipeline_write_env=PIPELINE_WRITE_ENV,
-    table_name="average_bom_history",
+    table_name=DESTINATION_TABLE,
     log_to_event_table=True,
     log_successes=True,
 )
@@ -1081,12 +1103,10 @@ gx_validation.validate_and_log_gx_results(
 
 # COMMAND ----------
 
-spark.sql(f"CREATE DATABASE IF NOT EXISTS {CATALOG}.{SCHEMA}")
-
 try:
-    startTime = time.time()
+    start_time = time.time()
     if INCREMENTAL_LOAD:
-        result = table_utils.save_table(
+        table_utils.save_table(
             dest_table=DESTINATION_TABLE_FULL_PATH,
             df=df_transf,
             mode="overwrite",
@@ -1094,11 +1114,11 @@ try:
             partition_col="snapshot_date",
             merge_schema=True,
             replace_where="snapshot_date IN ({})".format(
-                ", ".join(f"DATE'{d.isoformat()}'" for d in SNAPSHOT_DATES)
+                ", ".join(f"DATE'{snapshot_date.isoformat()}'" for snapshot_date in SNAPSHOT_DATES)
             ),
         )
     else:
-        result = table_utils.save_table(
+        table_utils.save_table(
             dest_table=DESTINATION_TABLE_FULL_PATH,
             df=df_transf,
             mode="overwrite",
@@ -1111,10 +1131,8 @@ except AnalysisException as e:
     )
     raise
 else:
-    duration = time.time() - startTime
-    log.info(f"Table {DESTINATION_TABLE_FULL_PATH} saved in {duration} seconds.")
-    if result is not None:
-        result.display()
+    duration = time.time() - start_time
+    log.info(f"Table {DESTINATION_TABLE_FULL_PATH} saved in {duration:.0f} seconds.")
 
 # COMMAND ----------
 
@@ -1126,16 +1144,16 @@ else:
 TABLE_CONSTRAINT_NAME = f"gold_{DESTINATION_TABLE}_PK"
 TABLE_PK_COLS = PK_COL
 
-nb_cons = spark.sql(
-    f"select count(*) from system.information_SCHEMA.table_constraints "
-    f"where table_CATALOG='{CATALOG}' and table_SCHEMA='{SCHEMA}' "
-    f"and table_name='{DESTINATION_TABLE}' and lower(constraint_name)=lower('{TABLE_CONSTRAINT_NAME}')"
+constraint_count = spark.sql(
+    f"SELECT count(*) FROM system.information_schema.table_constraints "
+    f"WHERE table_catalog = '{CATALOG}' AND table_schema = '{SCHEMA}' "
+    f"AND table_name = '{DESTINATION_TABLE}' AND lower(constraint_name) = lower('{TABLE_CONSTRAINT_NAME}')"
 ).first()[0]
 
-if nb_cons == 0:
-    for col in TABLE_PK_COLS.split(","):
+if constraint_count == 0:
+    for pk_column in TABLE_PK_COLS.split(","):
         table_utils.set_table_column_not_null(
-            table_path=DESTINATION_TABLE_FULL_PATH, column=col.strip()
+            table_path=DESTINATION_TABLE_FULL_PATH, column=pk_column.strip()
         )
     table_utils.add_table_primary_key(
         table_path=DESTINATION_TABLE_FULL_PATH,
@@ -1151,13 +1169,11 @@ if nb_cons == 0:
 
 # COMMAND ----------
 
-excluded_prefixes = ["_"]
-selected_columns = [
-    c for c in df_transf.columns if not any(c.startswith(p) for p in excluded_prefixes)
-]
+TECHNICAL_COLUMN_PREFIX = "_"
+exposed_columns = [column for column in df_transf.columns if not column.startswith(TECHNICAL_COLUMN_PREFIX)]
 table_utils.create_table_view(
     src_full_tablename=DESTINATION_TABLE_FULL_PATH,
     dest_full_tablename=f"{DESTINATION_TABLE_FULL_PATH}_exposed",
-    select_statement=", ".join(selected_columns),
+    select_statement=", ".join(exposed_columns),
     replace_view=True,
 )
