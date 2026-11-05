@@ -42,8 +42,8 @@ manquantes, si une entrée n'a pas la structure attendue (cellule « Required co
 
 ### Avant le run
 
-**1. Piles disponibles** — attendu : `mkal_stack` et `marc_stack`. Si une pile `equk_stack` / `equp_stack` (quotas) existe, les quotas
-peuvent être historisés : le dire, le notebook sera adapté et la dette « quotas actuels » disparaît.
+**1. Piles disponibles** — résultat 2026-11-05 : `mkal_stack`, `marc_stack`, `equk_stack`, `equp_stack` existent. Les quotas sont donc historisés
+par le notebook (plus de lecture de l'état actuel).
 ```sql
 SHOW TABLES IN prod_landingzone.sap_latecoere_ecc6 LIKE '*stack';
 ```
@@ -98,16 +98,31 @@ WHERE file_mode = 'FULL'
 GROUP BY mmsta ORDER BY nb DESC;
 ```
 
-**6. Table des quotas** — attendu : `quota_number, quota, material_number, plant, production_version, Start_Validity, End_Validity`.
+**6. Piles des quotas** — attendu `equk_stack` : `qunum, matnr, werks, vdatu, bdatu` ; `equp_stack` : `qunum, qupos, verid, quote` (+ colonnes techniques
+`extraction_timestamp, ingestion_timestamp, file_mode, stack_row_id`). Le notebook s'arrête avec la liste des colonnes manquantes sinon.
 ```sql
-DESCRIBE prod_gold.production.quotas_arrangement_exposed;
+DESCRIBE prod_landingzone.sap_latecoere_ecc6.equk_stack;
 ```
 ```sql
-SELECT COUNT(*) AS nb, COUNT(DISTINCT quota_number) AS nb_quotas, MIN(Start_Validity), MAX(End_Validity),
-       SUM(CASE WHEN quota IS NULL THEN 1 ELSE 0 END) AS quota_nul
-FROM prod_gold.production.quotas_arrangement_exposed;
+DESCRIBE prod_landingzone.sap_latecoere_ecc6.equp_stack;
 ```
-Attendu : dates de type date, `quota_nul = 0`.
+```sql
+SELECT 'equk' AS pile, file_mode, COUNT(DISTINCT extraction_timestamp) AS nb_extractions, MIN(extraction_timestamp) AS premiere, MAX(extraction_timestamp) AS derniere
+FROM prod_landingzone.sap_latecoere_ecc6.equk_stack GROUP BY file_mode
+UNION ALL
+SELECT 'equp', file_mode, COUNT(DISTINCT extraction_timestamp), MIN(extraction_timestamp), MAX(extraction_timestamp)
+FROM prod_landingzone.sap_latecoere_ecc6.equp_stack GROUP BY file_mode;
+```
+Attendu : des extractions `FULL` régulières ; si `file_mode` vaut autre chose, ou si `equk` et `equp` ont des dates très différentes, me le dire.
+```sql
+SELECT (SELECT COUNT(DISTINCT trim(qunum)) FROM prod_landingzone.sap_latecoere_ecc6.equk_stack
+        WHERE file_mode = 'FULL'
+          AND extraction_timestamp = (SELECT MAX(extraction_timestamp) FROM prod_landingzone.sap_latecoere_ecc6.equk_stack WHERE file_mode = 'FULL')
+          AND try_to_date(trim(vdatu), 'yyyyMMdd') <= current_date() AND try_to_date(trim(bdatu), 'yyyyMMdd') > current_date()) AS arrangements_pile,
+       (SELECT COUNT(DISTINCT quota_number) FROM prod_gold.production.quotas_arrangement_exposed
+        WHERE start_validity <= current_date() AND end_validity > current_date()) AS arrangements_gold;
+```
+Attendu : deux nombres égaux ou très proches (le notebook reconstruit les quotas comme la Gold, à une date près).
 
 **7. Sortie du notebook A** — doit être complète et à jour (35 colonnes, ~42 snapshots, 3,7 M lignes par snapshot).
 ```sql
@@ -148,7 +163,20 @@ LEFT JOIN (SELECT DISTINCT plant, material_number, BOM_alternative FROM dev_lab.
            WHERE snapshot_date = DATE'2026-10-01') a
   ON a.plant = v.plant AND a.material_number = v.material_number AND a.BOM_alternative = v.BOM_alternative;
 ```
-Attendu : au moins 95 % avec BOM. Sinon, regarder si MKAL et A ne se joignent pas (zéros de tête, usine, alternative) avant de lancer.
+Attendu : au moins 95 % avec BOM **sur les usines présentes dans A**. Résultat 2026-11-05 : 162 402 versions valides mais 1 seule avec BOM, parce que la table
+`dev_lab.lab_jules.bom_item_history` ne contient que ~63 700 lignes par snapshot, de 2025-01-01 à 2026-10-01 (sous-ensemble d'un run de debug), pas toutes les usines.
+Refaire le contrôle limité aux usines de A :
+```sql
+SELECT plant, COUNT(*) AS nb_lignes FROM dev_lab.lab_jules.bom_item_history WHERE snapshot_date = DATE'2026-10-01' GROUP BY plant;
+```
+```sql
+SELECT COUNT(*) AS versions_valides, SUM(CASE WHEN a.BOM_alternative IS NOT NULL THEN 1 ELSE 0 END) AS avec_bom_dans_A
+FROM v_valid_versions v
+LEFT JOIN (SELECT DISTINCT plant, material_number, BOM_alternative FROM dev_lab.lab_jules.bom_item_history
+           WHERE snapshot_date = DATE'2026-10-01') a
+  ON a.plant = v.plant AND a.material_number = v.material_number AND a.BOM_alternative = v.BOM_alternative
+WHERE v.plant IN (SELECT DISTINCT plant FROM dev_lab.lab_jules.bom_item_history WHERE snapshot_date = DATE'2026-10-01');
+```
 
 **10. Combien d'AF ont plusieurs versions valides ?**
 ```sql
@@ -156,7 +184,8 @@ SELECT nb_versions, COUNT(*) AS nb_af
 FROM (SELECT plant, material_number, COUNT(*) AS nb_versions FROM v_valid_versions GROUP BY plant, material_number)
 GROUP BY nb_versions ORDER BY nb_versions;
 ```
-Mesure l'impact des points D1 et D2 : si les AF à plusieurs versions sont rares, le choix de la règle compte peu.
+Mesure l'impact du point D1. Résultat 2026-11-05 : 27 216 AF sur ~86 000 ont plusieurs versions valides (jusqu'à 55) et seulement 535 ont un quota :
+la règle « plus ancienne version » décide donc pour plus de 26 000 AF. Les contrôles 17 à 19 mesurent si ces versions donnent vraiment des BOM différentes.
 
 **11. Ces AF sont-elles couvertes par un quota ?**
 ```sql
@@ -207,6 +236,46 @@ SELECT COUNT(*) AS alternatives_multi_bom FROM (
 ```
 Attendu : 0 ou très peu. Sinon, lignes dupliquées dans la prévision : la règle D5 est à décider avant d'utiliser le résultat.
 
+**17. Ces versions multiples donnent-elles des BOM différentes ?** Plusieurs versions qui pointent vers la même alternative donnent la même BOM : le
+choix ne compte alors pas.
+```sql
+SELECT COUNT(*) AS af_plusieurs_versions,
+       SUM(CASE WHEN nb_alternatives > 1 THEN 1 ELSE 0 END) AS af_alternatives_differentes
+FROM (SELECT plant, material_number, COUNT(*) AS nb_versions, COUNT(DISTINCT BOM_alternative) AS nb_alternatives
+      FROM v_valid_versions GROUP BY plant, material_number HAVING COUNT(*) > 1);
+```
+
+**18. Pourquoi y a-t-il plusieurs versions ?** Tailles de lot (`bstmi` / `bstma`), statut de contrôle (`prfg_s`) : une version SAP est choisie par l'ordre selon sa taille de lot.
+```sql
+SELECT trim(prfg_s) AS statut_controle, COUNT(*) AS nb,
+       SUM(CASE WHEN try_cast(regexp_replace(trim(bstma), '-$', '') AS DOUBLE) > 0 THEN 1 ELSE 0 END) AS avec_borne_haute_lot
+FROM prod_landingzone.sap_latecoere_ecc6.mkal_stack
+WHERE file_mode = 'FULL'
+  AND extraction_timestamp = (SELECT MAX(extraction_timestamp) FROM prod_landingzone.sap_latecoere_ecc6.mkal_stack WHERE file_mode = 'FULL' AND CAST(extraction_timestamp AS DATE) < DATE'2026-10-01')
+  AND trim(mksp) <> 'X'
+GROUP BY trim(prfg_s) ORDER BY nb DESC;
+```
+```sql
+SELECT plant, material_number, COUNT(*) AS nb_versions, COUNT(DISTINCT BOM_alternative) AS nb_alternatives
+FROM v_valid_versions GROUP BY plant, material_number ORDER BY nb_versions DESC LIMIT 5;
+```
+Puis, pour un des 5 AF (remplacer `<usine>` et `<article>`), le détail de ses versions :
+```sql
+SELECT trim(verid) AS verid, trim(stlal) AS alternative_bom, trim(alnal) AS alternative_gamme, trim(bstmi) AS lot_min, trim(bstma) AS lot_max,
+       trim(prfg_s) AS statut_controle, trim(text1) AS texte, trim(adatu) AS valide_du, trim(bdatu) AS valide_au
+FROM prod_landingzone.sap_latecoere_ecc6.mkal_stack
+WHERE file_mode = 'FULL'
+  AND extraction_timestamp = (SELECT MAX(extraction_timestamp) FROM prod_landingzone.sap_latecoere_ecc6.mkal_stack WHERE file_mode = 'FULL' AND CAST(extraction_timestamp AS DATE) < DATE'2026-10-01')
+  AND trim(mksp) <> 'X' AND trim(werks) = '<usine>' AND ltrim('0', trim(matnr)) = '<article>'
+ORDER BY trim(adatu), trim(verid);
+```
+
+**19. Contrôle 12 et 13 sur toutes les usines.** Résultats 2026-11-05 sur le sous-ensemble de A : 886 fantômes, 0 sans BOM, 217 imbriqués, 0 boucle, 0 alternative avec plusieurs
+numéros de BOM. À refaire après un run complet de A (toutes les usines), ou en limitant A au debug de l'usine de test.
+
+**20. A complet ou debug ?** Le notebook D en debug lit `bom_item_history_debug`, en run complet `bom_item_history`. Avant de lancer D : soit relancer A en `full` (toutes
+usines, depuis 2023-05), soit le relancer avec les paramètres de debug pour créer `bom_item_history_debug`.
+
 ### Après le premier run (debug : `debug_plant = 2400`, `snapshot_from_date = 2025-01-01`)
 
 **14. Règles appliquées et fantômes**
@@ -245,7 +314,7 @@ Attendu : au moins 95 % de même version. Les écarts restants viennent du déca
 | # | Question | Défaut du notebook |
 |---|---|---|
 | D1 | Plusieurs versions valides : quota puis la plus ancienne (average_bom) ou plus petite alternative (multilevel) ? | quota puis la plus ancienne |
-| D2 | Quotas non historisés : accepter l'état actuel ? | oui, signalé |
+| D2 | Quotas non historisés | résolu : historisés depuis `equk_stack` / `equp_stack` |
 | D3 | AF sans version utilisable : plus petite alternative ou exclure de la mesure ? | plus petite alternative, marquée |
 | D4 | Vrac, statut usine `05`, `SPLIT`, articles `49…` : exclus de la Prévision 3 ? (= L7, L9) | gardés, marqués |
 | D5 | Plusieurs numéros de BOM pour la même alternative (plages de taille de lot `losvn` / `losbs`) : lequel ? | tous gardés (contrôle AMBER) |

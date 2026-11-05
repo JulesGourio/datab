@@ -16,7 +16,8 @@
 # MAGIC   2. one version only: the quota arrangement version when there are several, else the earliest valid-from, else the lowest version id;
 # MAGIC   3. its BOM alternative is read in `bom_item_history`; an AF without usable production version takes its lowest alternative
 # MAGIC      (`selection_rule = LOWEST_ALTERNATIVE`).
-# MAGIC - Quota arrangements are **not historised** (no stack): the current `quotas_arrangement_exposed` is evaluated at each snapshot date.
+# MAGIC - Quota arrangements (`EQUK` header, `EQUP` items) are historised from their stacks exactly like the production versions; only the
+# MAGIC   version with the highest quota of each arrangement counts, as in the existing Average BOM.
 # MAGIC - Phantom assemblies (`MARC.SOBSL = 50`) are replaced by the BOM selected for the phantom itself (same snapshot, same plant),
 # MAGIC   up to `MAX_PHANTOM_DEPTH` levels. Exploded lines carry BOM item `9999` and the phantom chain. A phantom that cannot be exploded
 # MAGIC   is kept and flagged (`explosion_status`).
@@ -35,7 +36,8 @@
 # MAGIC - {PIPELINE_WRITE_ENV}_gold.production.bom_item_history
 # MAGIC - {REFERENCE_READ_ENV}_landingzone.sap_latecoere_ecc6.mkal_stack
 # MAGIC - {REFERENCE_READ_ENV}_landingzone.sap_latecoere_ecc6.marc_stack
-# MAGIC - {REFERENCE_READ_ENV}_gold.production.quotas_arrangement_exposed
+# MAGIC - {REFERENCE_READ_ENV}_landingzone.sap_latecoere_ecc6.equk_stack
+# MAGIC - {REFERENCE_READ_ENV}_landingzone.sap_latecoere_ecc6.equp_stack
 # MAGIC
 # MAGIC **Output Tables (Pipeline)**
 # MAGIC - {PIPELINE_WRITE_ENV}_gold.production.average_bom_history
@@ -62,7 +64,6 @@ dbutils.library.restartPython()
 # MAGIC %md
 # MAGIC # Technical debt
 # MAGIC - Lab runs only, to remove before the move to Bitbucket: the `%pip install great_expectations` cell and its restart, `sys.path.insert(...)` (`leap_utils`) and the `persist` / `cache` patch (serverless) in the standard imports cell.
-# MAGIC - Quota arrangements are read in their **current** state: a quota deleted since a past snapshot date is unknown, and a quota created since is applied to snapshots before its validity only if its validity dates allow it. Only matters for AF with several valid production versions.
 # MAGIC - The existing Average BOM notebooks disagree on the choice among several valid versions (`create_proj_average_bom`: quota, then earliest valid-from; `create_proj_bom_average_multilevel`: lowest alternative). The first one is applied here: to be confirmed.
 # MAGIC - Fallback `LOWEST_ALTERNATIVE`: the existing indicator keeps the BOM created first, but the creation date of the BOM header is not kept by `bom_item_history`.
 # MAGIC - A phantom that contains itself (loop) is cut at the second occurrence: the pre-run checks of the spec (§4, check 12) must return 0 loops.
@@ -335,23 +336,15 @@ df_bom_raw = spark.read.table(SOURCE_BOM_TABLE_FULL_PATH)
 
 # MAGIC %md
 # MAGIC ### Landing zone stacks
-# MAGIC Full SAP extractions appended at each `extraction_timestamp`: production versions (`MKAL`) and article status (`MARC`).
+# MAGIC Full SAP extractions appended at each `extraction_timestamp`: production versions (`MKAL`), quota arrangements (`EQUK`, `EQUP`) and article status (`MARC`).
 # MAGIC Bronze `_latest` tables only hold the last extraction.
 
 # COMMAND ----------
 
 df_mkal_raw = spark.read.table(f"{LANDING_ZONE_SCHEMA}.mkal_stack")
 df_marc_raw = spark.read.table(f"{LANDING_ZONE_SCHEMA}.marc_stack")
-
-# COMMAND ----------
-
-# MAGIC %md
-# MAGIC ### Reference Gold tables
-# MAGIC Quota arrangements: used by the existing Average BOM only to choose among several valid production versions.
-
-# COMMAND ----------
-
-df_quota_raw = spark.read.table(f"{REFERENCE_READ_ENV}_gold.production.quotas_arrangement_exposed")
+df_equk_raw = spark.read.table(f"{LANDING_ZONE_SCHEMA}.equk_stack")
+df_equp_raw = spark.read.table(f"{LANDING_ZONE_SCHEMA}.equp_stack")
 
 # COMMAND ----------
 
@@ -386,9 +379,14 @@ check_required_columns(
     ["extraction_timestamp", "ingestion_timestamp", "file_mode", "stack_row_id", "matnr", "werks", "mmsta"],
 )
 check_required_columns(
-    df_quota_raw,
-    "quotas_arrangement_exposed",
-    ["quota_number", "material_number", "plant", "production_version", "quota", "Start_Validity", "End_Validity"],
+    df_equk_raw,
+    "equk_stack",
+    ["extraction_timestamp", "ingestion_timestamp", "file_mode", "stack_row_id", "qunum", "matnr", "werks", "vdatu", "bdatu"],
+)
+check_required_columns(
+    df_equp_raw,
+    "equp_stack",
+    ["extraction_timestamp", "ingestion_timestamp", "file_mode", "stack_row_id", "qunum", "qupos", "verid", "quote"],
 )
 
 # COMMAND ----------
@@ -407,6 +405,16 @@ mkal_timestamps = sorted(
 marc_timestamps = sorted(
     r["extraction_timestamp"]
     for r in df_marc_raw.filter(f.col("file_mode") == FULL_EXTRACTION)
+    .select("extraction_timestamp").distinct().collect()
+)
+equk_timestamps = sorted(
+    r["extraction_timestamp"]
+    for r in df_equk_raw.filter(f.col("file_mode") == FULL_EXTRACTION)
+    .select("extraction_timestamp").distinct().collect()
+)
+equp_timestamps = sorted(
+    r["extraction_timestamp"]
+    for r in df_equp_raw.filter(f.col("file_mode") == FULL_EXTRACTION)
     .select("extraction_timestamp").distinct().collect()
 )
 
@@ -438,10 +446,10 @@ if not SNAPSHOT_DATES:
     dbutils.notebook.exit("No new snapshot date to load")
 log.info(f"{len(SNAPSHOT_DATES)} snapshot dates, from {SNAPSHOT_DATES[0]} to {SNAPSHOT_DATES[-1]}")
 
-df_snapshot_dates = spark.createDataFrame([(d,) for d in SNAPSHOT_DATES], "snapshot_date date")
-
 df_map_mkal = build_snapshot_mapping(mkal_timestamps, SNAPSHOT_DATES)
 df_map_marc = build_snapshot_mapping(marc_timestamps, SNAPSHOT_DATES, backdate_first=True)
+df_map_equk = build_snapshot_mapping(equk_timestamps, SNAPSHOT_DATES)
+df_map_equp = build_snapshot_mapping(equp_timestamps, SNAPSHOT_DATES)
 
 # COMMAND ----------
 
@@ -571,40 +579,74 @@ df_gx_mkal = SparkDFDataset(df_mkal_prep, persist=False)
 # COMMAND ----------
 
 # MAGIC %md
-# MAGIC ##Prep5 - Quota arrangement versions
-# MAGIC Used only to choose among several valid versions. Per quota arrangement valid at the snapshot date, the version with the
-# MAGIC highest quota (no quota-weighted average: same simplification as the existing Average BOM). Current quota table,
-# MAGIC see technical debt.
+# MAGIC ##Prep5 - Quota arrangement versions (EQUK, EQUP)
+# MAGIC Used only to choose among several valid versions. Arrangements valid at the snapshot date (`EQUK`), their items (`EQUP`)
+# MAGIC with a quota above 0; per arrangement, the version with the highest quota (no quota-weighted average: same simplification
+# MAGIC as the existing Average BOM). An item without production version (external procurement) matches no version.
+
+# COMMAND ----------
+
+EQUK_COLUMNS = [
+    "snapshot_date",
+    f.trim("qunum").alias("quota_number"),
+    f.trim("matnr").alias("material_number"),
+    f.trim("werks").alias("plant"),
+    sap_date("vdatu").alias("quota_valid_from_date"),
+    sap_date("bdatu").alias("quota_valid_to_date"),
+    f.col("ingestion_timestamp").alias("_ingestion_timestamp"),
+    f.col("stack_row_id").alias("_stack_row_id"),
+]
+
+df_equk_prep = (
+    select_extractions(df_equk_raw.filter(f.col("file_mode") == FULL_EXTRACTION), df_map_equk)
+    .select(*EQUK_COLUMNS)
+    .filter(f.col("quota_valid_from_date") <= f.col("snapshot_date"))
+    .filter(f.col("quota_valid_to_date") > f.col("snapshot_date"))
+)
+df_equk_prep = table_utils.remove_leading_zeros(df=df_equk_prep, column_names=["material_number"])
+if DEBUG_PLANT:
+    df_equk_prep = df_equk_prep.filter(f.col("plant") == DEBUG_PLANT)
+df_equk_prep = table_utils.drop_duplicates_by_order(
+    df=df_equk_prep, columns=["snapshot_date", "quota_number"], order_col=LATEST_ROW_ORDER, keep="last"
+).drop(*LATEST_ROW_ORDER)
+
+df_gx_equk = SparkDFDataset(df_equk_prep, persist=False)
+
+# COMMAND ----------
+
+EQUP_COLUMNS = [
+    "snapshot_date",
+    f.trim("qunum").alias("quota_number"),
+    f.trim("qupos").alias("quota_item"),
+    f.when(f.trim("verid") == "", f.lit(None)).otherwise(f.trim("verid")).alias("production_version"),
+    sap_number("quote").alias("quota"),
+    f.col("ingestion_timestamp").alias("_ingestion_timestamp"),
+    f.col("stack_row_id").alias("_stack_row_id"),
+]
+
+df_equp_prep = (
+    select_extractions(df_equp_raw.filter(f.col("file_mode") == FULL_EXTRACTION), df_map_equp)
+    .select(*EQUP_COLUMNS)
+    .filter(f.col("quota") > 0)
+)
+df_equp_prep = table_utils.drop_duplicates_by_order(
+    df=df_equp_prep, columns=["snapshot_date", "quota_number", "quota_item"], order_col=LATEST_ROW_ORDER, keep="last"
+).drop(*LATEST_ROW_ORDER)
+
+df_gx_equp = SparkDFDataset(df_equp_prep, persist=False)
 
 # COMMAND ----------
 
 window_quota = Window.partitionBy("snapshot_date", "quota_number").orderBy(
-    f.desc("quota"), f.asc("production_version")
+    f.desc("quota"), f.asc_nulls_last("production_version")
 )
 
 df_quota_prep = (
-    df_quota_raw.select(
-        "quota_number",
-        "material_number",
-        "plant",
-        "production_version",
-        "quota",
-        f.col("Start_Validity").alias("quota_valid_from_date"),
-        f.col("End_Validity").alias("quota_valid_to_date"),
-    )
-)
-df_quota_prep = table_utils.remove_leading_zeros(df=df_quota_prep, column_names=["material_number"])
-
-df_quota_prep = (
-    df_quota_prep.join(
-        f.broadcast(df_snapshot_dates),
-        (f.col("quota_valid_from_date") <= f.col("snapshot_date"))
-        & (f.col("quota_valid_to_date") > f.col("snapshot_date")),
-        how="inner",
-    )
+    df_equk_prep.join(df_equp_prep, ["snapshot_date", "quota_number"], how="inner")
     .withColumn("rn", f.row_number().over(window_quota))
     .filter("rn = 1")
-    .select("snapshot_date", "material_number", "plant", "production_version")
+    .filter(f.col("production_version").isNotNull())
+    .select("snapshot_date", "plant", "material_number", "production_version")
     .distinct()
     .withColumn("is_quota_version", f.lit(True))
 )
@@ -927,6 +969,8 @@ red_quality_check_results = [
     df_gx_quota.expect_compound_columns_to_be_unique(
         ["snapshot_date", "plant", "material_number", "production_version"]
     ),
+    df_gx_equk.expect_compound_columns_to_be_unique(["snapshot_date", "quota_number"]),
+    df_gx_equp.expect_compound_columns_to_be_unique(["snapshot_date", "quota_number", "quota_item"]),
     df_gx_selection.expect_compound_columns_to_be_unique(["snapshot_date", "plant", "material_number"]),
     df_gx_marc.expect_compound_columns_to_be_unique(["snapshot_date", "plant", "component_material_number"]),
 ]
