@@ -34,36 +34,211 @@ quantité fixe) · `quantity_per_order` (quantité fixe, rebut compris) · `comp
 
 Prévision 3 dans C = `quantity_per_unit × quantité finale de l'OF + quantity_per_order` (le rebut est déjà dedans).
 
-## 4. Vérifications à faire sur Databricks (rien n'a pu être exécuté depuis le dépôt)
+## 4. Contrôles à faire avant le premier run (et après)
 
-Noms de champs SAP supposés : `mkal_stack` (`matnr`, `werks`, `verid`, `stlal`, `mksp`, `adatu`, `bdatu`, `file_mode`), `marc_stack.mmsta`,
-`quotas_arrangement_exposed` (`quota_number`, `quota`, `material_number`, `plant`, `production_version`, `Start_Validity`, `End_Validity`).
+Convention : `LZ` = `prod_landingzone.sap_latecoere_ecc6`, `A` = `dev_lab.lab_jules.bom_item_history` (sortie complète du notebook A, pas la version `_debug`).
+Date de test des contrôles 9 à 13 : `2026-10-01` (un snapshot de A existant). Le notebook s'arrête de lui-même, avec la liste des colonnes
+manquantes, si une entrée n'a pas la structure attendue (cellule « Required columns »). Les contrôles 2, 5, 6 et 7 disent à l'avance ce qu'il va trouver.
 
+### Avant le run
+
+**1. Piles disponibles** — attendu : `mkal_stack` et `marc_stack`. Si une pile `equk_stack` / `equp_stack` (quotas) existe, les quotas
+peuvent être historisés : le dire, le notebook sera adapté et la dette « quotas actuels » disparaît.
+```sql
+SHOW TABLES IN prod_landingzone.sap_latecoere_ecc6 LIKE '*stack';
+```
+
+**2. Structure de `mkal_stack`** — attendu : `matnr, werks, verid, stlal, mksp, adatu, bdatu, extraction_timestamp, ingestion_timestamp, file_mode, stack_row_id`.
 ```sql
 DESCRIBE prod_landingzone.sap_latecoere_ecc6.mkal_stack;
 ```
 ```sql
-SELECT file_mode, COUNT(DISTINCT extraction_timestamp) AS nb_extractions, MIN(extraction_timestamp), MAX(extraction_timestamp)
-FROM prod_landingzone.sap_latecoere_ecc6.mkal_stack GROUP BY file_mode;
+SELECT matnr, werks, verid, stlal, mksp, adatu, bdatu
+FROM prod_landingzone.sap_latecoere_ecc6.mkal_stack
+WHERE extraction_timestamp = (SELECT MAX(extraction_timestamp) FROM prod_landingzone.sap_latecoere_ecc6.mkal_stack)
+LIMIT 20;
 ```
+Attendu : `adatu` / `bdatu` en texte `yyyyMMdd` (ex. `20230101`, `99991231`), `mksp` = `X` ou vide, `stlal` du type `01`.
 ```sql
-SELECT mksp, COUNT(*) FROM prod_landingzone.sap_latecoere_ecc6.mkal_stack
+SELECT mksp, COUNT(*) AS nb,
+       SUM(CASE WHEN try_to_date(trim(adatu), 'yyyyMMdd') IS NULL OR try_to_date(trim(bdatu), 'yyyyMMdd') IS NULL THEN 1 ELSE 0 END) AS dates_illisibles,
+       SUM(CASE WHEN trim(stlal) = '' THEN 1 ELSE 0 END) AS sans_alternative
+FROM prod_landingzone.sap_latecoere_ecc6.mkal_stack
 WHERE extraction_timestamp = (SELECT MAX(extraction_timestamp) FROM prod_landingzone.sap_latecoere_ecc6.mkal_stack)
 GROUP BY mksp;
 ```
+Attendu : `dates_illisibles = 0`. `sans_alternative` doit rester faible (une version sans alternative ne peut pas donner de BOM : repli sur la plus petite alternative).
+
+**3. Extractions complètes de `mkal_stack`** — le notebook ne lit que `file_mode = 'FULL'`.
 ```sql
-SELECT mmsta, COUNT(*) FROM prod_landingzone.sap_latecoere_ecc6.marc_stack
-WHERE extraction_timestamp = (SELECT MAX(extraction_timestamp) FROM prod_landingzone.sap_latecoere_ecc6.marc_stack WHERE file_mode = 'FULL')
-GROUP BY mmsta ORDER BY 2 DESC;
+SELECT file_mode, COUNT(DISTINCT extraction_timestamp) AS nb_extractions,
+       MIN(extraction_timestamp) AS premiere, MAX(extraction_timestamp) AS derniere
+FROM prod_landingzone.sap_latecoere_ecc6.mkal_stack GROUP BY file_mode;
 ```
+Attendu : `FULL` avec ~281 extractions depuis 2023-04-23. Si on ne voit que `DELTA` ou une valeur différente de `FULL`, le notebook lirait 0 ligne : me le dire.
+
+**4. Couverture des snapshots par `mkal_stack`** — chaque snapshot de A doit avoir une extraction MKAL antérieure.
+```sql
+SELECT s.snapshot_date,
+       MAX(CAST(m.extraction_timestamp AS DATE)) AS derniere_extraction_mkal,
+       datediff(s.snapshot_date, MAX(CAST(m.extraction_timestamp AS DATE))) AS jours_ecart
+FROM (SELECT DISTINCT snapshot_date FROM dev_lab.lab_jules.bom_item_history) s
+LEFT JOIN (SELECT DISTINCT extraction_timestamp FROM prod_landingzone.sap_latecoere_ecc6.mkal_stack WHERE file_mode = 'FULL') m
+  ON CAST(m.extraction_timestamp AS DATE) < s.snapshot_date
+GROUP BY s.snapshot_date ORDER BY s.snapshot_date;
+```
+Attendu : aucune ligne à NULL, `jours_ecart` ≤ 7 (extractions hebdomadaires ou plus fréquentes). Un écart plus grand = trou dans la pile à signaler.
+
+**5. `marc_stack.mmsta`** (statut usine du composant) — attendu : colonne présente, `05` majoritaire.
+```sql
+SELECT mmsta, COUNT(*) AS nb
+FROM prod_landingzone.sap_latecoere_ecc6.marc_stack
+WHERE file_mode = 'FULL'
+  AND extraction_timestamp = (SELECT MAX(extraction_timestamp) FROM prod_landingzone.sap_latecoere_ecc6.marc_stack WHERE file_mode = 'FULL')
+GROUP BY mmsta ORDER BY nb DESC;
+```
+
+**6. Table des quotas** — attendu : `quota_number, quota, material_number, plant, production_version, Start_Validity, End_Validity`.
 ```sql
 DESCRIBE prod_gold.production.quotas_arrangement_exposed;
 ```
+```sql
+SELECT COUNT(*) AS nb, COUNT(DISTINCT quota_number) AS nb_quotas, MIN(Start_Validity), MAX(End_Validity),
+       SUM(CASE WHEN quota IS NULL THEN 1 ELSE 0 END) AS quota_nul
+FROM prod_gold.production.quotas_arrangement_exposed;
+```
+Attendu : dates de type date, `quota_nul = 0`.
 
-Après un premier run en debug (`debug_plant = 2400`, `snapshot_from_date = 2025-01-01`) :
-- répartition de `selection_rule` (la part de `LOWEST_ALTERNATIVE` doit rester faible) ;
-- nombre de lignes `explosion_status` différent de `DIRECT` / `EXPLODED` ;
-- comparaison avec la BOM actuelle : pour 3 AF témoins, `average_bom_history` du dernier snapshot contre `current_average_bom` / la BOM en cours.
+**7. Sortie du notebook A** — doit être complète et à jour (35 colonnes, ~42 snapshots, 3,7 M lignes par snapshot).
+```sql
+DESCRIBE dev_lab.lab_jules.bom_item_history;
+```
+```sql
+SELECT snapshot_date, COUNT(*) AS nb_lignes FROM dev_lab.lab_jules.bom_item_history GROUP BY snapshot_date ORDER BY snapshot_date;
+```
+Attendu : de `2023-05-01` au 1er du mois courant, sans trou. Si seule la table `_debug` existe, relancer A en `full` d'abord.
+
+**8. Quantité de base des BOM** — une quantité de base nulle ou égale à 0 donnerait une quantité inconnue.
+```sql
+SELECT COUNT(*) AS lignes, SUM(CASE WHEN BOM_base_quantity IS NULL OR BOM_base_quantity = 0 THEN 1 ELSE 0 END) AS base_nulle
+FROM dev_lab.lab_jules.bom_item_history WHERE snapshot_date = DATE'2026-10-01';
+```
+Attendu : `base_nulle` = 0 ou négligeable.
+
+**Versions de production valides au 2026-10-01 (à réutiliser dans les contrôles 9 à 11)**
+```sql
+CREATE OR REPLACE TEMP VIEW v_valid_versions AS
+SELECT ltrim('0', trim(matnr)) AS material_number, trim(werks) AS plant, trim(verid) AS production_version,
+       trim(stlal) AS BOM_alternative, try_to_date(trim(adatu), 'yyyyMMdd') AS valid_from
+FROM prod_landingzone.sap_latecoere_ecc6.mkal_stack
+WHERE file_mode = 'FULL'
+  AND extraction_timestamp = (SELECT MAX(extraction_timestamp) FROM prod_landingzone.sap_latecoere_ecc6.mkal_stack
+                              WHERE file_mode = 'FULL' AND CAST(extraction_timestamp AS DATE) < DATE'2026-10-01')
+  AND trim(mksp) <> 'X'
+  AND try_to_date(trim(adatu), 'yyyyMMdd') <= DATE'2026-10-01'
+  AND try_to_date(trim(bdatu), 'yyyyMMdd') > DATE'2026-10-01';
+```
+
+**9. L'alternative de la version existe-t-elle dans A ?**
+```sql
+SELECT COUNT(*) AS versions_valides,
+       SUM(CASE WHEN a.BOM_alternative IS NOT NULL THEN 1 ELSE 0 END) AS avec_bom_dans_A
+FROM v_valid_versions v
+LEFT JOIN (SELECT DISTINCT plant, material_number, BOM_alternative FROM dev_lab.lab_jules.bom_item_history
+           WHERE snapshot_date = DATE'2026-10-01') a
+  ON a.plant = v.plant AND a.material_number = v.material_number AND a.BOM_alternative = v.BOM_alternative;
+```
+Attendu : au moins 95 % avec BOM. Sinon, regarder si MKAL et A ne se joignent pas (zéros de tête, usine, alternative) avant de lancer.
+
+**10. Combien d'AF ont plusieurs versions valides ?**
+```sql
+SELECT nb_versions, COUNT(*) AS nb_af
+FROM (SELECT plant, material_number, COUNT(*) AS nb_versions FROM v_valid_versions GROUP BY plant, material_number)
+GROUP BY nb_versions ORDER BY nb_versions;
+```
+Mesure l'impact des points D1 et D2 : si les AF à plusieurs versions sont rares, le choix de la règle compte peu.
+
+**11. Ces AF sont-elles couvertes par un quota ?**
+```sql
+SELECT COUNT(*) AS af_plusieurs_versions,
+       SUM(CASE WHEN q.material_number IS NOT NULL THEN 1 ELSE 0 END) AS avec_quota
+FROM (SELECT plant, material_number FROM v_valid_versions GROUP BY plant, material_number HAVING COUNT(*) > 1) m
+LEFT JOIN (SELECT DISTINCT ltrim('0', material_number) AS material_number, plant
+           FROM prod_gold.production.quotas_arrangement_exposed
+           WHERE Start_Validity <= DATE'2026-10-01' AND End_Validity > DATE'2026-10-01') q
+  ON q.material_number = m.material_number AND q.plant = m.plant;
+```
+Les AF sans quota prennent la version la plus anciennement valide.
+
+**12. Fantômes : nombre, sans BOM, imbriqués, boucles**
+```sql
+SELECT COUNT(*) AS lignes_fantomes, COUNT(DISTINCT component_material_number) AS fantomes_distincts
+FROM dev_lab.lab_jules.bom_item_history WHERE snapshot_date = DATE'2026-10-01' AND is_phantom_item;
+```
+```sql
+WITH p AS (SELECT DISTINCT plant, component_material_number AS phantom FROM dev_lab.lab_jules.bom_item_history
+           WHERE snapshot_date = DATE'2026-10-01' AND is_phantom_item),
+b AS (SELECT DISTINCT plant, material_number, MAX(CASE WHEN is_phantom_item THEN 1 ELSE 0 END) AS has_phantom_child
+      FROM dev_lab.lab_jules.bom_item_history WHERE snapshot_date = DATE'2026-10-01' GROUP BY plant, material_number)
+SELECT COUNT(*) AS fantomes,
+       SUM(CASE WHEN b.material_number IS NULL THEN 1 ELSE 0 END) AS sans_bom,
+       SUM(CASE WHEN b.has_phantom_child = 1 THEN 1 ELSE 0 END) AS imbriques
+FROM p LEFT JOIN b ON b.plant = p.plant AND b.material_number = p.phantom;
+```
+```sql
+-- boucles : un fantôme qui se contient lui-même (directement ou via un autre fantôme)
+SELECT COUNT(*) AS boucles FROM (
+  SELECT x.plant, x.material_number, x.component_material_number
+  FROM dev_lab.lab_jules.bom_item_history x
+  JOIN dev_lab.lab_jules.bom_item_history y
+    ON y.snapshot_date = x.snapshot_date AND y.plant = x.plant AND y.material_number = x.component_material_number
+  WHERE x.snapshot_date = DATE'2026-10-01' AND x.is_phantom_item AND y.is_phantom_item
+    AND (y.component_material_number = x.material_number OR x.component_material_number = x.material_number)
+);
+```
+Attendu : `boucles = 0`. `sans_bom` : ces fantômes resteront signalés `PHANTOM_WITHOUT_BOM`. Si les imbriqués descendent à plus de 7 niveaux, me le dire.
+
+**13. Plusieurs numéros de BOM pour la même alternative (tailles de lot)**
+```sql
+SELECT COUNT(*) AS alternatives_multi_bom FROM (
+  SELECT plant, material_number, BOM_alternative FROM dev_lab.lab_jules.bom_item_history
+  WHERE snapshot_date = DATE'2026-10-01' GROUP BY plant, material_number, BOM_alternative
+  HAVING COUNT(DISTINCT BOM_number) > 1);
+```
+Attendu : 0 ou très peu. Sinon, lignes dupliquées dans la prévision : la règle D5 est à décider avant d'utiliser le résultat.
+
+### Après le premier run (debug : `debug_plant = 2400`, `snapshot_from_date = 2025-01-01`)
+
+**14. Règles appliquées et fantômes**
+```sql
+SELECT selection_rule, COUNT(DISTINCT concat_ws('-', plant, material_number)) AS nb_af
+FROM dev_lab.lab_jules.average_bom_history_debug
+WHERE snapshot_date = (SELECT MAX(snapshot_date) FROM dev_lab.lab_jules.average_bom_history_debug)
+GROUP BY selection_rule;
+```
+```sql
+SELECT explosion_status, COUNT(*) AS nb_lignes
+FROM dev_lab.lab_jules.average_bom_history_debug
+WHERE snapshot_date = (SELECT MAX(snapshot_date) FROM dev_lab.lab_jules.average_bom_history_debug)
+GROUP BY explosion_status;
+```
+Attendu : `LOWEST_ALTERNATIVE` faible, `PHANTOM_WITHOUT_BOM` cohérent avec le contrôle 12, `PHANTOM_DEPTH_EXCEEDED` = 0.
+
+**15. Le notebook reproduit-il l'indicateur existant ?** Au dernier snapshot, la version et l'alternative choisies doivent être celles de la table `average_bom` de production (branche IS seulement, d'où la jointure).
+```sql
+WITH d AS (SELECT DISTINCT plant, material_number, production_version, BOM_alternative
+           FROM dev_lab.lab_jules.average_bom_history_debug
+           WHERE snapshot_date = (SELECT MAX(snapshot_date) FROM dev_lab.lab_jules.average_bom_history_debug)),
+p AS (SELECT DISTINCT Plant AS plant, Material_Number AS material_number, Production_Version AS production_version, Alternative AS BOM_alternative
+      FROM prod_proj.manuf_engineering.average_bom WHERE horizon = 12)
+SELECT COUNT(*) AS af_communes,
+       SUM(CASE WHEN d.production_version = p.production_version THEN 1 ELSE 0 END) AS meme_version,
+       SUM(CASE WHEN d.BOM_alternative = p.BOM_alternative THEN 1 ELSE 0 END) AS meme_alternative
+FROM d JOIN p ON d.plant = p.plant AND d.material_number = p.material_number;
+```
+Attendu : au moins 95 % de même version. Les écarts restants viennent du décalage de date et des AF sans version unique : me donner 5 exemples pour les expliquer.
+
+**16. Trois AF témoins** — donner `plant` + `material_number` de 3 AF dont tu connais la BOM : je compare leurs lignes (`quantity_per_unit`, `explosion_status`) avec ce que tu attends.
 
 ## 5. Points ouverts
 

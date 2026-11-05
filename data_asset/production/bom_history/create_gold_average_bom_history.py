@@ -65,9 +65,8 @@ dbutils.library.restartPython()
 # MAGIC - Quota arrangements are read in their **current** state: a quota deleted since a past snapshot date is unknown, and a quota created since is applied to snapshots before its validity only if its validity dates allow it. Only matters for AF with several valid production versions.
 # MAGIC - The existing Average BOM notebooks disagree on the choice among several valid versions (`create_proj_average_bom`: quota, then earliest valid-from; `create_proj_bom_average_multilevel`: lowest alternative). The first one is applied here: to be confirmed.
 # MAGIC - Fallback `LOWEST_ALTERNATIVE`: the existing indicator keeps the BOM created first, but the creation date of the BOM header is not kept by `bom_item_history`.
-# MAGIC - The columns of `mkal_stack` (`matnr`, `werks`, `verid`, `stlal`, `mksp`, `adatu`, `bdatu`) and `marc_stack.mmsta` are the SAP field names, not yet checked on Databricks (see the verification queries in the spec).
-# MAGIC - A phantom that contains itself (loop) is cut at the second occurrence; none is known.
-# MAGIC - A material can have several BOM numbers for the same alternative (lot size ranges, `MAST.losvn` / `losbs`): all are kept, an AMBER check counts them.
+# MAGIC - A phantom that contains itself (loop) is cut at the second occurrence: the pre-run checks of the spec (§4, check 12) must return 0 loops.
+# MAGIC - A material can have several BOM numbers for the same alternative (lot size ranges, `MAST.losvn` / `losbs`): all are kept, an AMBER check counts them; spec §4, check 13, gives the expected count before the run.
 # MAGIC - `sap_number()`, `sap_flag()`, `sap_date()`, `month_starts()`, `build_snapshot_mapping()` are also defined in `create_gold_bom_item_history`: move them to `leap_utils` before the Bitbucket PR.
 # MAGIC - The first run after a change of `bom_item_history` snapshots must use `rebuild_mode = full`.
 
@@ -264,8 +263,16 @@ MAX_PHANTOM_DEPTH = 7  # same depth as the existing Average BOM notebook
 # MAGIC - `sap_flag`: SAP indicator `'X'` -> `True`, anything else -> `False`.
 # MAGIC - `sap_date`: SAP `yyyyMMdd` text -> date.
 # MAGIC - `build_snapshot_mapping`: for each snapshot date, the latest extraction strictly before it.
+# MAGIC - `check_required_columns`: stops the notebook with the list of missing columns instead of failing later in a join.
 
 # COMMAND ----------
+
+def check_required_columns(df, table_label, required_columns):
+    existing = {c.lower() for c in df.columns}
+    missing = sorted(c for c in required_columns if c.lower() not in existing)
+    if missing:
+        raise ValueError(f"{table_label}: missing columns {missing}. Columns found: {sorted(df.columns)}")
+
 
 def sap_number(column_name):
     raw = f.trim(f.col(column_name))
@@ -345,6 +352,44 @@ df_marc_raw = spark.read.table(f"{LANDING_ZONE_SCHEMA}.marc_stack")
 # COMMAND ----------
 
 df_quota_raw = spark.read.table(f"{REFERENCE_READ_ENV}_gold.production.quotas_arrangement_exposed")
+
+# COMMAND ----------
+
+# MAGIC %md
+# MAGIC ### Required columns
+# MAGIC The notebook reads SAP field names and Gold columns by name: it stops here, with the list of what is missing,
+# MAGIC if one of the inputs does not have the expected structure.
+
+# COMMAND ----------
+
+check_required_columns(
+    df_bom_raw,
+    SOURCE_BOM_TABLE_FULL_PATH,
+    [
+        "snapshot_date", "plant", "material_number", "material_description", "BOM_alternative", "BOM_number",
+        "BOM_node", "BOM_item_number", "BOM_item_category", "BOM_status", "component_material_number",
+        "component_description", "component_base_unit", "component_scrap_percentage",
+        "material_component_scrap_percentage", "is_fixed_quantity", "component_quantity_in_base_unit",
+        "BOM_base_quantity", "is_phantom_item", "is_bulk_material", "_is_backdated_link",
+        "_is_backdated_allocation", "_BOM_extraction_timestamp",
+    ],
+)
+check_required_columns(
+    df_mkal_raw,
+    "mkal_stack",
+    ["extraction_timestamp", "ingestion_timestamp", "file_mode", "stack_row_id", "matnr", "werks", "verid",
+     "stlal", "mksp", "adatu", "bdatu"],
+)
+check_required_columns(
+    df_marc_raw,
+    "marc_stack",
+    ["extraction_timestamp", "ingestion_timestamp", "file_mode", "stack_row_id", "matnr", "werks", "mmsta"],
+)
+check_required_columns(
+    df_quota_raw,
+    "quotas_arrangement_exposed",
+    ["quota_number", "material_number", "plant", "production_version", "quota", "Start_Validity", "End_Validity"],
+)
 
 # COMMAND ----------
 
@@ -547,7 +592,11 @@ df_quota_prep = (
         f.col("Start_Validity").alias("quota_valid_from_date"),
         f.col("End_Validity").alias("quota_valid_to_date"),
     )
-    .join(
+)
+df_quota_prep = table_utils.remove_leading_zeros(df=df_quota_prep, column_names=["material_number"])
+
+df_quota_prep = (
+    df_quota_prep.join(
         f.broadcast(df_snapshot_dates),
         (f.col("quota_valid_from_date") <= f.col("snapshot_date"))
         & (f.col("quota_valid_to_date") > f.col("snapshot_date")),
