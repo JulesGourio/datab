@@ -23,6 +23,7 @@ A + B + OF + mouvements de stock + données article         ──► C  {env}_p
 |---|---|---|
 | A | `data_asset/production/bom_history/create_gold_bom_item_history.py` | BOM telle que SAP la connaissait au 1er de chaque mois (Prévision 3) |
 | B | `data_asset/mrp/order_component_requirement_history/create_gold_order_component_requirement_history.py` | Besoins ouverts des OP / OF au 1er de chaque mois (Prévisions 1 et 2) |
+| D | `data_asset/production/bom_history/create_gold_average_bom_history.py` | Average BOM (« BOM commune ») au 1er de chaque mois : version de production active à T0, fantômes éclatés (Prévision 3 « as-designed ») — voir `spec_average_bom_history.md` |
 | C | `proj/uc093-bom_reliability/create_proj_bom_reliability.py` | Périodes, périmètre IS, consommations, erreurs, statut, fiabilité |
 
 **Principe de l'historique.** Les tables `*_stack` de la landing zone gardent chaque extraction SAP complète (jamais
